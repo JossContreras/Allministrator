@@ -1,4 +1,5 @@
 import 'package:allministrator/core/shared/identifiers.dart';
+import 'package:allministrator/domain/interaction/drag_session.dart';
 import 'package:allministrator/domain/interaction/interaction_models.dart';
 
 abstract class InteractionIntent {
@@ -9,6 +10,57 @@ class SelectBlockIntent extends InteractionIntent {
   const SelectBlockIntent(this.blockId);
 
   final Uuid blockId;
+}
+
+class AddBlockToSelectionIntent extends InteractionIntent {
+  const AddBlockToSelectionIntent(this.blockId);
+  final Uuid blockId;
+}
+
+class RemoveBlockFromSelectionIntent extends InteractionIntent {
+  const RemoveBlockFromSelectionIntent(this.blockId);
+  final Uuid blockId;
+}
+
+class ToggleBlockSelectionIntent extends InteractionIntent {
+  const ToggleBlockSelectionIntent(this.blockId);
+  final Uuid blockId;
+}
+
+class SelectRangeIntent extends InteractionIntent {
+  const SelectRangeIntent(this.blockId, {required this.visualOrder});
+  final Uuid blockId;
+  final List<Uuid> visualOrder;
+}
+
+class BeginMarqueeSelectionIntent extends InteractionIntent {
+  const BeginMarqueeSelectionIntent(this.position);
+  final InteractionPoint position;
+}
+
+class UpdateMarqueeSelectionIntent extends InteractionIntent {
+  const UpdateMarqueeSelectionIntent({
+    required this.position,
+    required this.candidateIds,
+  });
+  final InteractionPoint position;
+  final List<Uuid> candidateIds;
+}
+
+class CommitMarqueeSelectionIntent extends InteractionIntent {
+  const CommitMarqueeSelectionIntent();
+}
+
+class CancelMarqueeSelectionIntent extends InteractionIntent {
+  const CancelMarqueeSelectionIntent();
+}
+
+class DeleteSelectionIntent extends InteractionIntent {
+  const DeleteSelectionIntent();
+}
+
+class CopySelectionIntent extends InteractionIntent {
+  const CopySelectionIntent();
 }
 
 class ClearSelectionIntent extends InteractionIntent {
@@ -76,6 +128,19 @@ class BeginDragIntent extends InteractionIntent {
   const BeginDragIntent(this.blockId);
 
   final Uuid blockId;
+}
+
+class UpdateDragIntent extends InteractionIntent {
+  const UpdateDragIntent({required this.position, this.dropTarget});
+
+  final InteractionPoint position;
+  final DropTarget? dropTarget;
+}
+
+class CommitDragIntent extends InteractionIntent {
+  const CommitDragIntent(this.dropTarget);
+
+  final DropTarget dropTarget;
 }
 
 class ResizeIntent extends InteractionIntent {

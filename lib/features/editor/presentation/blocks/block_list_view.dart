@@ -46,6 +46,10 @@ class BlockListView extends StatelessWidget {
         bindings: {
           const SingleActivator(LogicalKeyboardKey.escape): () =>
               _dispatchEscape(),
+          const SingleActivator(LogicalKeyboardKey.delete): () =>
+              _dispatchSelectionDelete('Delete'),
+          const SingleActivator(LogicalKeyboardKey.backspace): () =>
+              _dispatchSelectionDelete('Backspace'),
         },
         child: ListView.builder(
           controller: controller,
@@ -110,6 +114,7 @@ class BlockListView extends StatelessWidget {
   }
 
   void _dispatchOutsideTap() {
+    if (interaction.context.activeSession is MarqueeSelectionSession) return;
     final dispatcher = inputDispatcher;
     if (dispatcher != null) {
       dispatcher.dispatch(
@@ -128,6 +133,22 @@ class BlockListView extends StatelessWidget {
     interaction.dispatch(
       const CancelInteractionIntent(
         reason: InteractionCancellationReason.outsideTap,
+      ),
+    );
+  }
+
+  void _dispatchSelectionDelete(String key) {
+    final dispatcher = inputDispatcher;
+    if (dispatcher == null) return;
+    dispatcher.dispatch(
+      NormalizedInputEvent(
+        eventId: generateUuid(),
+        workspaceId: session.workspace.id,
+        pageId: session.page.id,
+        type: NormalizedInputEventType.keyDown,
+        deviceType: InputDeviceType.keyboard,
+        timestamp: DateTime.now().toUtc(),
+        key: key,
       ),
     );
   }

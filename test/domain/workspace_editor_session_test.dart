@@ -189,6 +189,26 @@ void main() {
       List<double>.generate(50, (index) => index.toDouble()),
     );
   });
+
+  test('multiple move and delete are atomic and undoable', () {
+    final session = _session(
+      TextBlock(id: 'a', orderKey: 0, paragraphs: const [BlockParagraph(id: 'pa', text: 'A')]),
+      extraBlocks: [
+        DividerBlock(id: 'b', orderKey: 1),
+        DividerBlock(id: 'c', orderKey: 2),
+        DividerBlock(id: 'd', orderKey: 3),
+      ],
+    );
+    session.moveBlocksTo(['b', 'd'], targetBlockId: 'c', insertAfter: true);
+    expect(session.blocks.map((block) => block.id), ['a', 'c', 'b', 'd']);
+    session.undo();
+    expect(session.blocks.map((block) => block.id), ['a', 'b', 'c', 'd']);
+    session.redo();
+    session.deleteBlocks(['b', 'd']);
+    expect(session.blocks.map((block) => block.id), ['a', 'c']);
+    session.undo();
+    expect(session.blocks.map((block) => block.id), ['a', 'c', 'b', 'd']);
+  });
 }
 
 WorkspaceEditorSession _session(

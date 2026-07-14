@@ -1,6 +1,11 @@
 import 'dart:collection';
 
 import 'package:allministrator/domain/interaction/block_geometry_registry.dart';
+import 'package:allministrator/domain/interaction/drag_session.dart';
+import 'package:allministrator/domain/interaction/drop_resolver.dart';
+import 'package:allministrator/domain/interaction/marquee_selection_session.dart';
+import 'package:allministrator/domain/interaction/selection_group.dart';
+import 'package:allministrator/domain/interaction/spatial_geometry.dart';
 import 'package:allministrator/domain/interaction/interaction_intent_result.dart';
 import 'package:allministrator/domain/interaction/interaction_intents.dart';
 import 'package:allministrator/domain/interaction/interaction_models.dart';
@@ -22,6 +27,7 @@ class InputDispatcher {
     this.onCommand,
     this.onResult,
     this.isModalActive,
+    this.dropResolver,
     this.maxRememberedEvents = 100,
   });
 
@@ -33,6 +39,7 @@ class InputDispatcher {
   final InteractionCommandSink? onCommand;
   final InputDispatchObserver? onResult;
   final bool Function()? isModalActive;
+  final DropResolver? dropResolver;
   final int maxRememberedEvents;
   final Queue<String> _eventIds = Queue();
   final Set<String> _seenIds = {};
@@ -55,7 +62,99 @@ class InputDispatcher {
     _dispatching = true;
     try {
       final event = _withResolvedHit(input);
+      final activeSession = controller.context.activeSession;
       _trackPointer(event);
+      if (activeSession is DragSession &&
+          event.globalPosition != null &&
+          event.type == NormalizedInputEventType.pointerMove) {
+        final target = dropResolver?.resolve(
+          sourceBlockId: activeSession.blockId!,
+          sourceBlockIds: activeSession.blockIds,
+          position: event.globalPosition!,
+        );
+        controller.dispatch(
+          UpdateDragIntent(
+            position: InteractionPoint(
+              event.globalPosition!.x,
+              event.globalPosition!.y,
+            ),
+            dropTarget: target,
+          ),
+        );
+      }
+      if (activeSession is MarqueeSelectionSession &&
+          event.globalPosition != null &&
+          event.type == NormalizedInputEventType.pointerMove) {
+        final position = SpatialPoint(
+          event.globalPosition!.x,
+          event.globalPosition!.y,
+        );
+        final candidates = SelectionBoundsResolver(registry)
+            .intersecting(activeSession.copyWith(currentPosition: position).bounds);
+        controller.dispatch(
+          UpdateMarqueeSelectionIntent(
+            position: InteractionPoint(position.x, position.y),
+            candidateIds: candidates,
+          ),
+        );
+        return _publish(
+          event,
+          const InteractionIntentResult.state(
+            InteractionIntentResultKind.consumed,
+            reason: 'marquee-update',
+          ),
+        );
+      }
+      if (activeSession is MarqueeSelectionSession &&
+          event.type == NormalizedInputEventType.pointerUp) {
+        controller.dispatch(const CommitMarqueeSelectionIntent());
+        return _publish(
+          event,
+          const InteractionIntentResult.state(
+            InteractionIntentResultKind.consumed,
+            reason: 'marquee-commit',
+          ),
+        );
+      }
+      if (activeSession is MarqueeSelectionSession &&
+          event.type == NormalizedInputEventType.pointerCancel) {
+        controller.dispatch(const CancelMarqueeSelectionIntent());
+        return _publish(
+          event,
+          const InteractionIntentResult.state(
+            InteractionIntentResultKind.cancelled,
+            reason: 'marquee-cancel',
+          ),
+        );
+      }
+      if (activeSession is DragSession &&
+          event.globalPosition != null &&
+          event.type == NormalizedInputEventType.pointerUp) {
+        final target = dropResolver?.resolve(
+          sourceBlockId: activeSession.blockId!,
+          sourceBlockIds: activeSession.blockIds,
+          position: event.globalPosition!,
+        );
+        if (target == null || !target.isValid) {
+          controller.dispatch(
+            const CancelInteractionIntent(
+              reason: InteractionCancellationReason.explicit,
+              keepBlockSelected: true,
+            ),
+          );
+          return _publish(
+            event,
+            InteractionIntentResult.state(
+              InteractionIntentResultKind.cancelled,
+              reason: target?.reason ?? 'invalid-drop',
+            ),
+          );
+        }
+        final intent = CommitDragIntent(target);
+        controller.dispatch(intent);
+        onCommand?.call(intent, event);
+        return _publish(event, InteractionIntentResult.intent(intent));
+      }
       final resolution = resolver.resolve(
         event: event,
         context: controller.context,
@@ -155,6 +254,14 @@ class InputDispatcher {
   void _execute(InteractionIntent intent, NormalizedInputEvent event) {
     switch (intent) {
       case SelectBlockIntent() ||
+          AddBlockToSelectionIntent() ||
+          RemoveBlockFromSelectionIntent() ||
+          ToggleBlockSelectionIntent() ||
+          SelectRangeIntent() ||
+          BeginMarqueeSelectionIntent() ||
+          UpdateMarqueeSelectionIntent() ||
+          CommitMarqueeSelectionIntent() ||
+          CancelMarqueeSelectionIntent() ||
           ClearSelectionIntent() ||
           StartEditingIntent() ||
           FinishEditingIntent() ||
@@ -164,6 +271,13 @@ class InputDispatcher {
           UpdatePointerIntent() ||
           ClearPointerIntent():
         controller.dispatch(intent);
+      case BeginDragIntent() || UpdateDragIntent():
+        controller.dispatch(intent);
+      case CommitDragIntent():
+        controller.dispatch(intent);
+        onCommand?.call(intent, event);
+      case DeleteSelectionIntent():
+        onCommand?.call(intent, event);
       default:
         onCommand?.call(intent, event);
     }

@@ -87,6 +87,7 @@ class WorkspaceSurface extends StatelessWidget {
       interaction: interaction,
       workspaceId: workspaceId,
       pageId: pageId,
+      scrollController: scrollController,
       inputDispatcher: inputDispatcher,
       child: layers,
     );
@@ -137,6 +138,7 @@ class InteractionLayer extends StatelessWidget {
     required this.interaction,
     required this.workspaceId,
     required this.pageId,
+    required this.scrollController,
     this.inputDispatcher,
     required this.child,
     super.key,
@@ -146,8 +148,10 @@ class InteractionLayer extends StatelessWidget {
   final WorkspaceInteractionController interaction;
   final String workspaceId;
   final String pageId;
+  final ScrollController scrollController;
   final InputDispatcher? inputDispatcher;
   final Widget child;
+  static const _autoScrollPolicy = DragAutoScrollPolicy();
 
   @override
   Widget build(BuildContext context) => Listener(
@@ -185,7 +189,21 @@ class InteractionLayer extends StatelessWidget {
       PointerUpEvent() => NormalizedInputEventType.pointerUp,
       _ => NormalizedInputEventType.pointerMove,
     };
+    final wasMarquee = interaction.context.activeSession is MarqueeSelectionSession;
     _dispatchPointer(event, type, isDown: isDown);
+    if (event is PointerUpEvent && !wasMarquee && inputDispatcher != null) {
+      final point = SpatialPoint(event.position.dx, event.position.dy);
+      final hit = registry.hitTest(point);
+      inputDispatcher!.dispatch(
+        const PointerInputAdapter().adapt(
+          event: event,
+          workspaceId: workspaceId,
+          pageId: pageId,
+          type: NormalizedInputEventType.tap,
+          hit: hit,
+        ),
+      );
+    }
   }
 
   void _dispatchPointer(
@@ -206,6 +224,7 @@ class InteractionLayer extends StatelessWidget {
           hit: hit,
         ),
       );
+      _autoScroll(event);
       return;
     }
     interaction.dispatch(
@@ -217,6 +236,28 @@ class InteractionLayer extends StatelessWidget {
           targetKind: hit.target.kind,
           blockId: hit.target.blockId,
         ),
+      ),
+    );
+  }
+
+  void _autoScroll(PointerEvent event) {
+    if (event is! PointerMoveEvent ||
+        interaction.context.activeSession is! DragSession ||
+        !scrollController.hasClients) {
+      return;
+    }
+    final viewport = registry.viewport;
+    if (viewport == null) return;
+    final delta = _autoScrollPolicy.deltaFor(
+      event.position.dy,
+      viewport.visibleBounds,
+    );
+    if (delta == 0) return;
+    final position = scrollController.position;
+    scrollController.jumpTo(
+      (position.pixels + delta).clamp(
+        position.minScrollExtent,
+        position.maxScrollExtent,
       ),
     );
   }
@@ -262,6 +303,16 @@ class InteractionLayer extends StatelessWidget {
               } else {
                 interaction.dispatch(SelectBlockIntent(entry.blockId));
               }
+            },
+            onLongPressStart: (_) {
+              inputDispatcher?.dispatch(
+                const GestureInputAdapter().longPressStart(
+                  workspaceId: workspaceId,
+                  pageId: pageId,
+                  target: BlockHandleHitTarget(entry.blockId),
+                  regionId: 'block-handle',
+                ),
+              );
             },
           ),
         ),
@@ -315,6 +366,7 @@ class OverlayLayer extends StatelessWidget {
                   colorScheme: Theme.of(context).colorScheme,
                   debugGeometry: debugGeometry,
                   selectionProgress: progress,
+                  visualState: visual,
                 ),
               ),
             ),
@@ -473,6 +525,7 @@ class _OverlayPainter extends CustomPainter {
     required this.colorScheme,
     required this.debugGeometry,
     required this.selectionProgress,
+    this.visualState,
   });
 
   final List<BlockGeometryEntry> entries;
@@ -481,6 +534,7 @@ class _OverlayPainter extends CustomPainter {
   final ColorScheme colorScheme;
   final bool debugGeometry;
   final double selectionProgress;
+  final WorkspaceOverlayVisualState? visualState;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -524,6 +578,48 @@ class _OverlayPainter extends CustomPainter {
         }
       }
       if (debugGeometry) _paintDebug(canvas, entry, origin);
+    }
+    final visual = visualState;
+    if (visual?.dragGhostBounds case final ghost?) {
+      final rect = _toRect(ghost, origin);
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(rect, const Radius.circular(10)),
+        Paint()..color = colorScheme.primaryContainer.withValues(alpha: 0.55),
+      );
+    }
+    if (visual?.placeholderY case final y?) {
+      final localY = y - origin.y;
+      canvas.drawLine(
+        Offset(WorkspaceOverlayMetrics.surfaceEdgeInset, localY),
+        Offset(size.width - WorkspaceOverlayMetrics.surfaceEdgeInset, localY),
+        Paint()
+          ..color = colorScheme.primary
+          ..strokeWidth = 3,
+      );
+    }
+    if (visual?.combinedSelectionBounds case final bounds?) {
+      final rect = _toRect(bounds, origin);
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(rect, const Radius.circular(10)),
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 1.5
+          ..color = colorScheme.primary.withValues(alpha: 0.8),
+      );
+    }
+    if (visual?.marqueeBounds case final marquee?) {
+      final rect = _toRect(marquee, origin);
+      canvas.drawRect(
+        rect,
+        Paint()..color = colorScheme.primary.withValues(alpha: 0.12),
+      );
+      canvas.drawRect(
+        rect,
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 1
+          ..color = colorScheme.primary,
+      );
     }
   }
 

@@ -1,8 +1,12 @@
 import 'package:allministrator/core/utils/uuid_generator.dart';
 import 'package:allministrator/domain/interaction/focus_coordinator.dart';
 import 'package:allministrator/domain/interaction/interaction_commands.dart';
+import 'package:allministrator/domain/interaction/drag_session.dart';
 import 'package:allministrator/domain/interaction/interaction_intents.dart';
 import 'package:allministrator/domain/interaction/interaction_models.dart';
+import 'package:allministrator/domain/interaction/spatial_geometry.dart';
+import 'package:allministrator/domain/interaction/marquee_selection_session.dart';
+import 'package:allministrator/domain/interaction/selection_group.dart';
 import 'package:flutter/foundation.dart';
 
 typedef UnhandledInteractionIntent = void Function(InteractionIntent intent);
@@ -30,6 +34,26 @@ class WorkspaceInteractionController extends ChangeNotifier {
     switch (intent) {
       case SelectBlockIntent():
         _selectBlock(intent.blockId);
+      case AddBlockToSelectionIntent():
+        _setGroup(_selectionGroup.add(intent.blockId));
+      case RemoveBlockFromSelectionIntent():
+        _setGroup(_selectionGroup.remove(intent.blockId));
+      case ToggleBlockSelectionIntent():
+        _setGroup(
+          _selectionGroup.contains(intent.blockId)
+              ? _selectionGroup.remove(intent.blockId)
+              : _selectionGroup.add(intent.blockId),
+        );
+      case SelectRangeIntent():
+        _selectRange(intent);
+      case BeginMarqueeSelectionIntent():
+        _beginMarquee(intent);
+      case UpdateMarqueeSelectionIntent():
+        _updateMarquee(intent);
+      case CommitMarqueeSelectionIntent():
+        _commitMarquee();
+      case CancelMarqueeSelectionIntent():
+        _cancelMarquee();
       case ClearSelectionIntent():
         _cancel(intent.reason, keepBlockSelected: false);
       case StartEditingIntent():
@@ -46,8 +70,15 @@ class WorkspaceInteractionController extends ChangeNotifier {
         _setContext(_context.copyWith(currentPointer: intent.pointer));
       case ClearPointerIntent():
         _setContext(_context.copyWith(currentPointer: null));
-      case BeginDragIntent() ||
-          ResizeIntent() ||
+      case BeginDragIntent():
+        _beginDrag(intent);
+      case UpdateDragIntent():
+        _updateDrag(intent);
+      case CommitDragIntent():
+        _commitDrag(intent);
+      case DeleteSelectionIntent() || CopySelectionIntent():
+        onUnhandledIntent?.call(intent);
+      case ResizeIntent() ||
           RotateIntent() ||
           StartHandwritingIntent() ||
           PanViewportIntent() ||
@@ -58,6 +89,185 @@ class WorkspaceInteractionController extends ChangeNotifier {
           CopyCodeIntent():
         onUnhandledIntent?.call(intent);
     }
+  }
+
+  SelectionGroup get _selectionGroup => switch (_context.currentSelection) {
+    MultiBlockSelection(:final group) => group,
+    BlockSelection(:final blockId) => SelectionGroup(
+      blockIds: [blockId],
+      primaryBlockId: blockId,
+      anchorBlockId: blockId,
+    ),
+    _ => const SelectionGroup(),
+  };
+
+  void _setGroup(SelectionGroup group) {
+    final normalized = group.normalized();
+    _clearFocusWithoutCallback();
+    _setContext(
+      _context.copyWith(
+        selectedBlock: normalized.primaryBlockId,
+        focusedBlock: null,
+        editingBlock: null,
+        activeSession: null,
+        interactionMode: normalized.isEmpty
+            ? InteractionMode.idle
+            : normalized.isMultiple
+            ? InteractionMode.multiSelection
+            : InteractionMode.blockSelected,
+        currentSelection: normalized.isEmpty
+            ? const NoSelection()
+            : normalized.isSingle
+            ? BlockSelection(normalized.primaryBlockId!)
+            : MultiBlockSelection(normalized),
+        overlayState: const InteractionOverlayState(),
+      ),
+    );
+  }
+
+  void _selectRange(SelectRangeIntent intent) {
+    final group = _selectionGroup;
+    final anchor = group.anchorBlockId ?? group.primaryBlockId ?? intent.blockId;
+    final first = intent.visualOrder.indexOf(anchor);
+    final last = intent.visualOrder.indexOf(intent.blockId);
+    if (first < 0 || last < 0) {
+      _setGroup(SelectionGroup(blockIds: [intent.blockId], primaryBlockId: intent.blockId, anchorBlockId: intent.blockId));
+      return;
+    }
+    final from = first < last ? first : last;
+    final to = first > last ? first : last;
+    _setGroup(
+      SelectionGroup(
+        blockIds: intent.visualOrder.sublist(from, to + 1),
+        primaryBlockId: intent.blockId,
+        anchorBlockId: anchor,
+      ),
+    );
+  }
+
+  void _beginMarquee(BeginMarqueeSelectionIntent intent) {
+    final pointer = _context.currentPointer;
+    if (pointer == null ||
+        _context.activeSession != null ||
+        _context.activeTool != WorkspaceTool.selection) {
+      return;
+    }
+    final initial = _selectionGroup;
+    _setContext(
+      _context.copyWith(
+        activeSession: MarqueeSelectionSession(
+          id: generateUuid(),
+          startedAt: DateTime.now().toUtc(),
+          pointerId: pointer.pointerId,
+          startPosition: SpatialPoint(intent.position.x, intent.position.y),
+          initialGroup: initial,
+        ),
+        interactionMode: InteractionMode.multiSelection,
+        currentSelection: MultiBlockSelection(initial.copyWith(isTemporary: true)),
+      ),
+    );
+  }
+
+  void _updateMarquee(UpdateMarqueeSelectionIntent intent) {
+    final session = _context.activeSession;
+    if (session is! MarqueeSelectionSession) return;
+    final group = SelectionGroup(
+      blockIds: intent.candidateIds,
+      primaryBlockId: intent.candidateIds.isEmpty ? null : intent.candidateIds.last,
+      anchorBlockId: session.initialGroup.anchorBlockId,
+      isTemporary: true,
+    ).normalized();
+    _setContext(
+      _context.copyWith(
+        selectedBlock: group.primaryBlockId,
+        activeSession: session.copyWith(
+          currentPosition: SpatialPoint(intent.position.x, intent.position.y),
+          candidateIds: group.blockIds,
+        ),
+        currentSelection: MultiBlockSelection(group),
+      ),
+    );
+  }
+
+  void _commitMarquee() {
+    final session = _context.activeSession;
+    if (session is! MarqueeSelectionSession) return;
+    final temporary = _selectionGroup;
+    _setGroup(temporary.copyWith(isTemporary: false));
+  }
+
+  void _cancelMarquee() {
+    final session = _context.activeSession;
+    if (session is! MarqueeSelectionSession) return;
+    _setGroup(session.initialGroup);
+  }
+
+  void _beginDrag(BeginDragIntent intent) {
+    final pointer = _context.currentPointer;
+    if (_context.activeTool != WorkspaceTool.selection ||
+        _context.activeSession != null ||
+        pointer == null) {
+      onUnhandledIntent?.call(intent);
+      return;
+    }
+    final position = SpatialPoint(pointer.position.x, pointer.position.y);
+    final group = _selectionGroup;
+    final dragIds = group.contains(intent.blockId)
+        ? group.blockIds
+        : <String>[intent.blockId];
+    _clearFocusWithoutCallback();
+    _setContext(
+      _context.copyWith(
+        selectedBlock: intent.blockId,
+        focusedBlock: null,
+        editingBlock: null,
+        activeSession: DragSession(
+          id: generateUuid(),
+          startedAt: DateTime.now().toUtc(),
+          blockId: intent.blockId,
+          pointerId: pointer.pointerId,
+          startPosition: position,
+          blockIds: dragIds,
+          primaryBlockId: intent.blockId,
+        ),
+        interactionMode: InteractionMode.dragging,
+        currentSelection: BlockSelection(intent.blockId),
+        overlayState: const InteractionOverlayState(),
+      ),
+    );
+  }
+
+  void _updateDrag(UpdateDragIntent intent) {
+    final session = _context.activeSession;
+    if (session is! DragSession || session.state != DragSessionState.active) {
+      return;
+    }
+    _setContext(
+      _context.copyWith(
+        activeSession: session.copyWith(
+          currentPosition: SpatialPoint(intent.position.x, intent.position.y),
+          dropTarget: intent.dropTarget,
+        ),
+      ),
+    );
+  }
+
+  void _commitDrag(CommitDragIntent intent) {
+    final session = _context.activeSession;
+    if (session is! DragSession || !intent.dropTarget.isValid) return;
+    _setContext(
+      _context.copyWith(
+        activeSession: null,
+        interactionMode: InteractionMode.blockSelected,
+        currentSelection: session.blockIds.length > 1
+            ? MultiBlockSelection.fromIds(
+                session.blockIds,
+                primaryBlockId: session.primaryBlockId ?? session.blockId,
+                anchorBlockId: session.primaryBlockId ?? session.blockId,
+              )
+            : BlockSelection(session.blockId!),
+      ),
+    );
   }
 
   void _selectBlock(String blockId) {

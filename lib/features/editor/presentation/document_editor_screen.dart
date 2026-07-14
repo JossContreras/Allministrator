@@ -98,6 +98,7 @@ class _DocumentEditorScreenState extends State<DocumentEditorScreen> {
         workspace: workspace,
         onChanged: _workspaceChanged,
       );
+      _session!.addListener(_invalidateUnmountedSelection);
       _inputDispatcher = InputDispatcher(
         workspaceId: workspace.id,
         pageId: _session!.page.id,
@@ -113,10 +114,24 @@ class _DocumentEditorScreenState extends State<DocumentEditorScreen> {
                     isLocked: block.isLocked,
                   );
           },
+          visualOrder: () => _session?.blocks.map((block) => block.id).toList() ?? const [],
         ),
         isModalActive: () =>
             _interaction.context.interactionMode == InteractionMode.contextMenu,
         onResult: kDebugMode ? _recordInteractionDebug : null,
+        onCommand: _handleInteractionCommand,
+        dropResolver: DropResolver(
+          registry: _geometryRegistry,
+          blockInfo: (blockId) {
+            final block = _session?.blockById(blockId);
+            return block == null
+                ? null
+                : BlockInteractionInfo(
+                    capabilities: block.capabilities,
+                    isLocked: block.isLocked,
+                  );
+          },
+        ),
       );
       _overlayController = InteractionOverlayController(
         interaction: _interaction,
@@ -193,6 +208,19 @@ class _DocumentEditorScreenState extends State<DocumentEditorScreen> {
 
   void _workspaceChanged(Workspace workspace) => _scheduleSave();
 
+  void _invalidateUnmountedSelection() {
+    final selected = switch (_interaction.context.currentSelection) {
+      MultiBlockSelection(:final group) => group.blockIds,
+      BlockSelection(:final blockId) => [blockId],
+      _ => const <String>[],
+    };
+    for (final id in selected) {
+      if (_session?.blockById(id) == null) {
+        _interaction.dispatch(RemoveBlockFromSelectionIntent(id));
+      }
+    }
+  }
+
   void _recordInteractionDebug(InputDispatchResult result) {
     _interactionTimeline.add(result);
     // Only technical event metadata is logged: no document or user text.
@@ -201,6 +229,32 @@ class _DocumentEditorScreenState extends State<DocumentEditorScreen> {
       'target=${result.event.hitTarget?.kind.name} '
       'result=${result.resolution.kind.name}',
     );
+  }
+
+  void _handleInteractionCommand(
+    InteractionIntent intent,
+    NormalizedInputEvent event,
+  ) {
+    if (intent case CommitDragIntent(:final dropTarget)) {
+      _session?.moveBlocksTo(
+        dropTarget.sourceBlockIds.isEmpty
+            ? [dropTarget.sourceBlockId]
+            : dropTarget.sourceBlockIds,
+        targetBlockId: dropTarget.targetBlockId,
+        insertAfter: dropTarget.insertAfter,
+      );
+    }
+    if (intent is DeleteSelectionIntent) {
+      final ids = switch (_interaction.context.currentSelection) {
+        MultiBlockSelection(:final group) => group.blockIds,
+        BlockSelection(:final blockId) => [blockId],
+        _ => const <String>[],
+      };
+      if (ids.isNotEmpty) {
+        _session?.deleteBlocks(ids);
+        _interaction.dispatch(const ClearSelectionIntent());
+      }
+    }
   }
 
   void _scheduleSave() {
@@ -914,6 +968,7 @@ class _DocumentEditorScreenState extends State<DocumentEditorScreen> {
     _titleController
       ..removeListener(_scheduleSave)
       ..dispose();
+    _session?.removeListener(_invalidateUnmountedSelection);
     _session?.dispose();
     _interaction.dispose();
     _inputDispatcher?.dispose();

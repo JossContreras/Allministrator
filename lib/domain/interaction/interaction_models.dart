@@ -1,5 +1,6 @@
 import 'package:allministrator/core/shared/identifiers.dart';
 import 'package:allministrator/domain/interaction/workspace_hit_target.dart';
+import 'package:allministrator/domain/interaction/selection_group.dart';
 
 enum InteractionMode {
   idle,
@@ -81,9 +82,24 @@ class TextSelectionState extends WorkspaceSelection {
 }
 
 class MultiBlockSelection extends WorkspaceSelection {
-  const MultiBlockSelection(this.blockIds);
+  const MultiBlockSelection(this.group);
 
-  final Set<Uuid> blockIds;
+  factory MultiBlockSelection.fromIds(
+    Iterable<Uuid> ids, {
+    Uuid? primaryBlockId,
+    Uuid? anchorBlockId,
+    bool isTemporary = false,
+  }) => MultiBlockSelection(
+    SelectionGroup(
+      blockIds: ids.toList(),
+      primaryBlockId: primaryBlockId,
+      anchorBlockId: anchorBlockId,
+      isTemporary: isTemporary,
+    ).normalized(),
+  );
+
+  final SelectionGroup group;
+  List<Uuid> get blockIds => group.blockIds;
 }
 
 class CompositeSelection extends WorkspaceSelection {

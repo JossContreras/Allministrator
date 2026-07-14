@@ -135,7 +135,7 @@ void main() {
       );
       expect(
         dispatcher.dispatch(down).resolution.kind,
-        InteractionIntentResultKind.ignored,
+        InteractionIntentResultKind.intent,
       );
       expect(dispatcher.dispatch(down).resolution.reason, 'duplicate-event');
       expect(

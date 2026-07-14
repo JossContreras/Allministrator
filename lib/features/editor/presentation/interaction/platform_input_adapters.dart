@@ -4,6 +4,7 @@ import 'package:allministrator/core/utils/uuid_generator.dart';
 import 'package:allministrator/domain/interaction/interaction.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show KeyDownEvent, KeyEvent;
+import 'package:flutter/services.dart' show HardwareKeyboard, LogicalKeyboardKey;
 
 class PointerInputAdapter {
   const PointerInputAdapter();
@@ -30,7 +31,22 @@ class PointerInputAdapter {
     targetBlockId: hit?.target.blockId,
     targetRegionId: hit?.region?.id,
     isPrimary: event.down || event.kind != PointerDeviceKind.mouse,
+    modifiers: _modifiers(),
   );
+
+  InputModifiers _modifiers() {
+    final keys = HardwareKeyboard.instance.logicalKeysPressed;
+    return InputModifiers(
+      control: keys.contains(LogicalKeyboardKey.controlLeft) ||
+          keys.contains(LogicalKeyboardKey.controlRight),
+      shift: keys.contains(LogicalKeyboardKey.shiftLeft) ||
+          keys.contains(LogicalKeyboardKey.shiftRight),
+      alt: keys.contains(LogicalKeyboardKey.altLeft) ||
+          keys.contains(LogicalKeyboardKey.altRight),
+      meta: keys.contains(LogicalKeyboardKey.metaLeft) ||
+          keys.contains(LogicalKeyboardKey.metaRight),
+    );
+  }
 
   InputDeviceType _device(PointerDeviceKind kind) => switch (kind) {
     PointerDeviceKind.touch => InputDeviceType.touch,
@@ -55,6 +71,23 @@ class GestureInputAdapter {
     workspaceId: workspaceId,
     pageId: pageId,
     type: NormalizedInputEventType.tap,
+    deviceType: InputDeviceType.touch,
+    timestamp: DateTime.now().toUtc(),
+    hitTarget: target,
+    targetBlockId: target.blockId,
+    targetRegionId: regionId,
+  );
+
+  NormalizedInputEvent longPressStart({
+    required String workspaceId,
+    required String pageId,
+    required WorkspaceHitTarget target,
+    String? regionId,
+  }) => NormalizedInputEvent(
+    eventId: generateUuid(),
+    workspaceId: workspaceId,
+    pageId: pageId,
+    type: NormalizedInputEventType.longPressStart,
     deviceType: InputDeviceType.touch,
     timestamp: DateTime.now().toUtc(),
     hitTarget: target,

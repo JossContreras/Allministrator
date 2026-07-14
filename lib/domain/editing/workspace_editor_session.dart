@@ -190,6 +190,98 @@ class WorkspaceEditorSession extends ChangeNotifier {
     );
   }
 
+  /// Commits a drag drop as one reversible editor command.
+  void moveBlockTo(
+    String blockId, {
+    String? targetBlockId,
+    required bool insertAfter,
+  }) {
+    final ordered = blocks;
+    final sourceIndex = ordered.indexWhere((block) => block.id == blockId);
+    if (sourceIndex < 0 ||
+        !ordered[sourceIndex].supports(BlockCapability.movable)) {
+      return;
+    }
+    final next = [...ordered];
+    final source = next.removeAt(sourceIndex);
+    var insertionIndex = targetBlockId == null
+        ? next.length
+        : next.indexWhere((block) => block.id == targetBlockId);
+    if (insertionIndex < 0) insertionIndex = next.length;
+    if (insertAfter && insertionIndex < next.length) insertionIndex++;
+    insertionIndex = insertionIndex.clamp(0, next.length);
+    next.insert(insertionIndex, source);
+    if (listEquals(
+      ordered.map((block) => block.id).toList(),
+      next.map((block) => block.id).toList(),
+    )) {
+      return;
+    }
+    final now = DateTime.now().toUtc();
+    _commit(
+      _replaceBlocks(_normalizeOrder(next, now), now: now),
+      kind: 'dragBlock',
+      blockId: blockId,
+      refreshPresentation: true,
+    );
+  }
+
+  /// One history entry for a multi-block drag while preserving visual order.
+  void moveBlocksTo(
+    Iterable<String> blockIds, {
+    String? targetBlockId,
+    required bool insertAfter,
+  }) {
+    final selectedIds = blockIds.toSet();
+    if (selectedIds.isEmpty) return;
+    final ordered = blocks;
+    final moving = ordered.where((block) => selectedIds.contains(block.id)).toList();
+    if (moving.length != selectedIds.length ||
+        moving.any((block) => !block.supports(BlockCapability.movable))) {
+      return;
+    }
+    final next = ordered.where((block) => !selectedIds.contains(block.id)).toList();
+    var insertionIndex = targetBlockId == null
+        ? next.length
+        : next.indexWhere((block) => block.id == targetBlockId);
+    if (insertionIndex < 0) insertionIndex = next.length;
+    if (insertAfter && insertionIndex < next.length) insertionIndex++;
+    insertionIndex = insertionIndex.clamp(0, next.length);
+    next.insertAll(insertionIndex, moving);
+    if (listEquals(
+      ordered.map((block) => block.id).toList(),
+      next.map((block) => block.id).toList(),
+    )) {
+      return;
+    }
+    final now = DateTime.now().toUtc();
+    _commit(
+      _replaceBlocks(_normalizeOrder(next, now), now: now),
+      kind: 'moveMultipleBlocks',
+      blockId: moving.first.id,
+      refreshPresentation: true,
+    );
+  }
+
+  void deleteBlocks(Iterable<String> blockIds) {
+    final ids = blockIds.toSet();
+    if (ids.isEmpty) return;
+    final selected = blocks.where((block) => ids.contains(block.id)).toList();
+    if (selected.length != ids.length ||
+        selected.any((block) => !block.supports(BlockCapability.deletable))) {
+      return;
+    }
+    final now = DateTime.now().toUtc();
+    final next = blocks.where((block) => !ids.contains(block.id)).toList();
+    if (next.isEmpty) next.add(_emptyTextBlock(orderKey: 0, now: now));
+    _commit(
+      _replaceBlocks(_normalizeOrder(next, now), now: now),
+      kind: 'deleteMultipleBlocks',
+      blockId: selected.first.id,
+      refreshPresentation: true,
+    );
+  }
+
   bool canMergeTextWithNext(String blockId) {
     final ordered = blocks;
     final index = ordered.indexWhere((block) => block.id == blockId);

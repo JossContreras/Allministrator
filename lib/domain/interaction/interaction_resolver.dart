@@ -8,6 +8,7 @@ import 'package:allministrator/domain/interaction/workspace_hit_target.dart';
 
 typedef BlockInteractionInfoResolver =
     BlockInteractionInfo? Function(String blockId);
+typedef VisualBlockOrderResolver = List<String> Function();
 
 class BlockInteractionInfo {
   const BlockInteractionInfo({
@@ -25,9 +26,10 @@ class BlockInteractionInfo {
 /// Converts neutral input plus current context into an intention. It contains
 /// no Workspace mutation and can therefore be exhaustively unit tested.
 class InteractionResolver {
-  const InteractionResolver({this.blockInfo});
+  const InteractionResolver({this.blockInfo, this.visualOrder});
 
   final BlockInteractionInfoResolver? blockInfo;
+  final VisualBlockOrderResolver? visualOrder;
 
   InteractionIntentResult resolve({
     required NormalizedInputEvent event,
@@ -58,6 +60,21 @@ class InteractionResolver {
         priority: InteractionPriority.viewport,
       );
     }
+    if (_isDelete(event)) {
+      if (context.editingBlock != null) {
+        return const InteractionIntentResult.state(
+          InteractionIntentResultKind.delegatedToNative,
+          reason: 'native-text-delete',
+          priority: InteractionPriority.nativeText,
+        );
+      }
+      if (_selectedBlockIds(context).isNotEmpty) {
+        return const InteractionIntentResult.intent(
+          DeleteSelectionIntent(),
+          priority: InteractionPriority.viewport,
+        );
+      }
+    }
     if (event.type == NormalizedInputEventType.pointerCancel) {
       return const InteractionIntentResult.intent(
         CancelInteractionIntent(reason: InteractionCancellationReason.explicit),
@@ -66,6 +83,15 @@ class InteractionResolver {
     }
     if (event.type == NormalizedInputEventType.longPressStart &&
         target is BlockHandleHitTarget) {
+      if (context.activeTool != WorkspaceTool.selection ||
+          context.activeSession != null) {
+        return InteractionIntentResult.state(
+          InteractionIntentResultKind.rejected,
+          reason: 'drag-session-or-tool-incompatible',
+          priority: InteractionPriority.handle,
+          target: target,
+        );
+      }
       return _allowed(
         target.blockId!,
         BlockCapability.movable,
@@ -150,16 +176,37 @@ class InteractionResolver {
         priority: InteractionPriority.emptyArea,
       );
     }
+    if (target is EmptyAreaHitTarget &&
+        event.type == NormalizedInputEventType.pointerDown &&
+        context.editingBlock == null &&
+        context.activeSession == null &&
+        event.globalPosition != null) {
+      return InteractionIntentResult.intent(
+        BeginMarqueeSelectionIntent(
+          InteractionPoint(event.globalPosition!.x, event.globalPosition!.y),
+        ),
+        priority: InteractionPriority.viewport,
+        target: target,
+      );
+    }
     if ((target is BlockHandleHitTarget ||
             target is BlockBackgroundHitTarget ||
             target is BlockContentHitTarget ||
             target is CustomRegionHitTarget) &&
         _isActivation(event) &&
         target.blockId != null) {
+      final intent = event.modifiers.commandOrControl
+          ? ToggleBlockSelectionIntent(target.blockId!)
+          : event.modifiers.shift
+          ? SelectRangeIntent(
+              target.blockId!,
+              visualOrder: visualOrder?.call() ?? [target.blockId!],
+            )
+          : SelectBlockIntent(target.blockId!);
       return _allowed(
         target.blockId!,
         BlockCapability.selectable,
-        SelectBlockIntent(target.blockId!),
+        intent,
         target is BlockHandleHitTarget
             ? InteractionPriority.handle
             : InteractionPriority.blockRegion,
@@ -203,4 +250,15 @@ class InteractionResolver {
 
   bool _isEscape(NormalizedInputEvent event) =>
       event.type == NormalizedInputEventType.keyDown && event.key == 'Escape';
+
+  bool _isDelete(NormalizedInputEvent event) =>
+      event.type == NormalizedInputEventType.keyDown &&
+      (event.key == 'Delete' || event.key == 'Backspace');
+
+  List<String> _selectedBlockIds(InteractionContext context) =>
+      switch (context.currentSelection) {
+        MultiBlockSelection(:final group) => group.blockIds,
+        BlockSelection(:final blockId) => [blockId],
+        _ => const [],
+      };
 }
