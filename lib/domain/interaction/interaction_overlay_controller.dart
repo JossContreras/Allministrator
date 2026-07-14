@@ -5,6 +5,7 @@ import 'package:allministrator/domain/interaction/spatial_geometry.dart';
 import 'package:allministrator/domain/interaction/marquee_selection_session.dart';
 import 'package:allministrator/domain/interaction/selection_group.dart';
 import 'package:allministrator/domain/interaction/workspace_interaction_controller.dart';
+import 'package:allministrator/domain/interaction/transformation_engine.dart';
 import 'package:flutter/foundation.dart';
 
 class WorkspaceOverlayVisualState {
@@ -25,6 +26,8 @@ class WorkspaceOverlayVisualState {
     this.selectedBlockIds = const [],
     this.combinedSelectionBounds,
     this.marqueeBounds,
+    this.resizePreviewBounds,
+    this.smartGuides = const [],
   });
 
   final String? selectedBlockId;
@@ -43,6 +46,8 @@ class WorkspaceOverlayVisualState {
   final List<String> selectedBlockIds;
   final SpatialRect? combinedSelectionBounds;
   final SpatialRect? marqueeBounds;
+  final SpatialRect? resizePreviewBounds;
+  final List<SmartGuide> smartGuides;
 }
 
 /// Derived visual state. Selection remains owned by WorkspaceInteractionController.
@@ -83,6 +88,7 @@ class InteractionOverlayController extends ChangeNotifier {
     final drag = context.activeSession;
     final dragSession = drag is DragSession ? drag : null;
     final marqueeSession = drag is MarqueeSelectionSession ? drag : null;
+    final resizeSession = drag is ResizeSession ? drag : null;
     final dragEntry = dragSession?.blockId == null
         ? null
         : registry.geometryFor(dragSession!.blockId!);
@@ -96,25 +102,35 @@ class InteractionOverlayController extends ChangeNotifier {
       handleAnchor: entry?.handleAnchor,
       toolbarAnchor: entry?.toolbarAnchor,
       showSelectionBorder:
-          entry != null && !isTextEditing && dragSession == null,
+          entry != null &&
+          !isTextEditing &&
+          dragSession == null &&
+          resizeSession == null,
       showSelectionHighlight:
-          entry != null && !isTextEditing && dragSession == null,
-      showHandle: entry != null && !isTextEditing && dragSession == null,
+          entry != null &&
+          !isTextEditing &&
+          dragSession == null &&
+          resizeSession == null,
+      showHandle:
+          entry != null &&
+          !isTextEditing &&
+          dragSession == null &&
+          resizeSession == null,
       showToolbarAnchor: entry != null,
       activePointer: context.currentPointer,
       isDragging: dragSession != null,
       selectedBlockIds: group.blockIds,
       combinedSelectionBounds: SelectionBoundsResolver(registry).resolve(group),
       marqueeBounds: marqueeSession?.bounds,
-      dragGhostBounds: (dragSession == null
-              ? dragEntry?.globalBounds
-              : SelectionBoundsResolver(registry).resolve(
-                  SelectionGroup(blockIds: dragSession.blockIds),
-                ))
-          ?.translate(
-        dragSession?.delta.x ?? 0,
-        dragSession?.delta.y ?? 0,
-      ),
+      resizePreviewBounds: resizeSession?.previewBounds,
+      smartGuides: resizeSession?.guides ?? const [],
+      dragGhostBounds:
+          (dragSession == null
+                  ? dragEntry?.globalBounds
+                  : SelectionBoundsResolver(
+                      registry,
+                    ).resolve(SelectionGroup(blockIds: dragSession.blockIds)))
+              ?.translate(dragSession?.delta.x ?? 0, dragSession?.delta.y ?? 0),
       placeholderY: placeholderEntry == null
           ? null
           : dragSession!.dropTarget!.insertAfter

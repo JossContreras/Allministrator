@@ -86,7 +86,15 @@ void main() {
     addTearDown(controller.dispose);
     controller.dispatch(const SelectBlockIntent('a'));
     controller.dispatch(const AddBlockToSelectionIntent('c'));
-    controller.dispatch(const UpdatePointerIntent(InteractionPointer(pointerId: 9, position: InteractionPoint(0, 0), isDown: true)));
+    controller.dispatch(
+      const UpdatePointerIntent(
+        InteractionPointer(
+          pointerId: 9,
+          position: InteractionPoint(0, 0),
+          isDown: true,
+        ),
+      ),
+    );
     controller.dispatch(const BeginDragIntent('c'));
     final drag = controller.context.activeSession! as DragSession;
     expect(drag.blockIds, ['a', 'c']);

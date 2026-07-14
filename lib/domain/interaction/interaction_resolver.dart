@@ -4,11 +4,13 @@ import 'package:allministrator/domain/interaction/interaction_intent_result.dart
 import 'package:allministrator/domain/interaction/interaction_intents.dart';
 import 'package:allministrator/domain/interaction/interaction_models.dart';
 import 'package:allministrator/domain/interaction/normalized_input_event.dart';
+import 'package:allministrator/domain/interaction/spatial_geometry.dart';
 import 'package:allministrator/domain/interaction/workspace_hit_target.dart';
 
 typedef BlockInteractionInfoResolver =
     BlockInteractionInfo? Function(String blockId);
 typedef VisualBlockOrderResolver = List<String> Function();
+typedef BlockBoundsResolver = SpatialRect? Function(String blockId);
 
 class BlockInteractionInfo {
   const BlockInteractionInfo({
@@ -26,10 +28,15 @@ class BlockInteractionInfo {
 /// Converts neutral input plus current context into an intention. It contains
 /// no Workspace mutation and can therefore be exhaustively unit tested.
 class InteractionResolver {
-  const InteractionResolver({this.blockInfo, this.visualOrder});
+  const InteractionResolver({
+    this.blockInfo,
+    this.visualOrder,
+    this.blockBounds,
+  });
 
   final BlockInteractionInfoResolver? blockInfo;
   final VisualBlockOrderResolver? visualOrder;
+  final BlockBoundsResolver? blockBounds;
 
   InteractionIntentResult resolve({
     required NormalizedInputEvent event,
@@ -96,6 +103,35 @@ class InteractionResolver {
         target.blockId!,
         BlockCapability.movable,
         BeginDragIntent(target.blockId!),
+        InteractionPriority.handle,
+        target,
+      );
+    }
+    if (event.type == NormalizedInputEventType.pointerDown &&
+        target is ResizeHandleHitTarget &&
+        event.globalPosition != null &&
+        context.activeSession == null) {
+      final bounds = blockBounds?.call(target.blockId!);
+      if (bounds == null) {
+        return InteractionIntentResult.state(
+          InteractionIntentResultKind.rejected,
+          reason: 'resize-geometry-missing',
+          priority: InteractionPriority.handle,
+          target: target,
+        );
+      }
+      return _allowed(
+        target.blockId!,
+        BlockCapability.resizable,
+        BeginResizeIntent(
+          blockId: target.blockId!,
+          handle: target.handle,
+          position: InteractionPoint(
+            event.globalPosition!.x,
+            event.globalPosition!.y,
+          ),
+          initialBounds: bounds,
+        ),
         InteractionPriority.handle,
         target,
       );

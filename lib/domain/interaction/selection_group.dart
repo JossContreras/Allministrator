@@ -72,10 +72,9 @@ class SelectionGroup {
   Set<BlockCapability> commonCapabilities(Iterable<BaseBlock> blocks) {
     final selected = blocks.where((block) => contains(block.id)).toList();
     if (selected.isEmpty) return const {};
-    return selected.skip(1).fold<Set<BlockCapability>>(
-      {...selected.first.capabilities},
-      (common, block) => common.intersection(block.capabilities),
-    );
+    return selected.skip(1).fold<Set<BlockCapability>>({
+      ...selected.first.capabilities,
+    }, (common, block) => common.intersection(block.capabilities));
   }
 }
 
@@ -107,7 +106,8 @@ class SelectionBoundsResolver {
             final area = entry.globalBounds.width * entry.globalBounds.height;
             return area > 0 &&
                 !intersection.isEmpty &&
-                (intersection.width * intersection.height) / area >= minimumRatio;
+                (intersection.width * intersection.height) / area >=
+                    minimumRatio;
           })
           .map((entry) => entry.blockId)
           .toList();

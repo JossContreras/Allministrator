@@ -39,25 +39,32 @@ class ImageBlockWidget extends StatelessWidget {
           Align(
             alignment: alignment,
             child: ConstrainedBox(
-              constraints: BoxConstraints(maxWidth: maxWidth, maxHeight: 560),
-              child: renderContext.region(
-                id: 'image',
-                target: CustomRegionHitTarget(block.id, name: 'image'),
-                priority: 20,
-                child: GestureDetector(
-                  behavior: HitTestBehavior.opaque,
-                  onTap: renderContext.readOnly
-                      ? null
-                      : () {
-                          if (!renderContext.isSelected) {
-                            renderContext.interaction.dispatch(
-                              SelectBlockIntent(block.id),
-                            );
-                            return;
-                          }
-                          _openPreview(context, path);
-                        },
-                  child: _content(context, path),
+              constraints: BoxConstraints(
+                maxWidth: block.geometry.width ?? maxWidth,
+                maxHeight: block.geometry.height ?? 560,
+              ),
+              child: SizedBox(
+                width: block.geometry.width,
+                height: block.geometry.height,
+                child: renderContext.region(
+                  id: 'image',
+                  target: CustomRegionHitTarget(block.id, name: 'image'),
+                  priority: 20,
+                  child: GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onTap: renderContext.readOnly
+                        ? null
+                        : () {
+                            if (!renderContext.isSelected) {
+                              renderContext.interaction.dispatch(
+                                SelectBlockIntent(block.id),
+                              );
+                              return;
+                            }
+                            _openPreview(context, path);
+                          },
+                    child: _content(context, path),
+                  ),
                 ),
               ),
             ),

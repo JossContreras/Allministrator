@@ -1,6 +1,8 @@
 import 'package:allministrator/core/shared/identifiers.dart';
 import 'package:allministrator/domain/interaction/drag_session.dart';
 import 'package:allministrator/domain/interaction/interaction_models.dart';
+import 'package:allministrator/domain/interaction/spatial_geometry.dart';
+import 'package:allministrator/domain/interaction/transformation_engine.dart';
 
 abstract class InteractionIntent {
   const InteractionIntent();
@@ -147,6 +149,53 @@ class ResizeIntent extends InteractionIntent {
   const ResizeIntent(this.blockId);
 
   final Uuid blockId;
+}
+
+class BeginResizeIntent extends InteractionIntent {
+  const BeginResizeIntent({
+    required this.blockId,
+    required this.handle,
+    required this.position,
+    required this.initialBounds,
+  });
+
+  final Uuid blockId;
+  final ResizeHandle handle;
+  final InteractionPoint position;
+  final SpatialRect initialBounds;
+}
+
+class UpdateResizeIntent extends InteractionIntent {
+  const UpdateResizeIntent({
+    required this.position,
+    required this.previewBounds,
+    this.guides = const [],
+  });
+
+  final InteractionPoint position;
+  final SpatialRect previewBounds;
+  final List<SmartGuide> guides;
+}
+
+class CommitResizeIntent extends InteractionIntent {
+  const CommitResizeIntent({required this.blockId, required this.bounds});
+
+  final Uuid blockId;
+  final SpatialRect bounds;
+}
+
+class CancelResizeIntent extends InteractionIntent {
+  const CancelResizeIntent();
+}
+
+class AlignSelectionIntent extends InteractionIntent {
+  const AlignSelectionIntent(this.alignment);
+
+  final BlockAlignmentAxis alignment;
+}
+
+class DistributeSelectionIntent extends InteractionIntent {
+  const DistributeSelectionIntent();
 }
 
 class RotateIntent extends InteractionIntent {

@@ -10,6 +10,7 @@ class WorkspaceViewportReporter extends SingleChildRenderObjectWidget {
     required this.readScrollOffset,
     required this.keyboardInset,
     required this.visibleGlobalBottom,
+    this.camera = const WorkspaceCamera(),
     required super.child,
     super.key,
   });
@@ -19,6 +20,7 @@ class WorkspaceViewportReporter extends SingleChildRenderObjectWidget {
   final double Function() readScrollOffset;
   final double keyboardInset;
   final double visibleGlobalBottom;
+  final WorkspaceCamera camera;
 
   @override
   RenderObject createRenderObject(BuildContext context) =>
@@ -28,6 +30,7 @@ class WorkspaceViewportReporter extends SingleChildRenderObjectWidget {
         readScrollOffset: readScrollOffset,
         keyboardInset: keyboardInset,
         visibleGlobalBottom: visibleGlobalBottom,
+        camera: camera,
       );
 
   @override
@@ -41,6 +44,7 @@ class WorkspaceViewportReporter extends SingleChildRenderObjectWidget {
       ..readScrollOffset = readScrollOffset
       ..keyboardInset = keyboardInset
       ..visibleGlobalBottom = visibleGlobalBottom;
+    renderObject.camera = camera;
   }
 }
 
@@ -51,17 +55,20 @@ class RenderWorkspaceViewportReporter extends RenderProxyBox {
     required double Function() readScrollOffset,
     required double keyboardInset,
     required double visibleGlobalBottom,
+    required WorkspaceCamera camera,
   }) : _registry = registry,
        _scrollListenable = scrollListenable,
        _readScrollOffset = readScrollOffset,
        _keyboardInset = keyboardInset,
-       _visibleGlobalBottom = visibleGlobalBottom;
+       _visibleGlobalBottom = visibleGlobalBottom,
+       _camera = camera;
 
   BlockGeometryRegistry _registry;
   Listenable _scrollListenable;
   double Function() _readScrollOffset;
   double _keyboardInset;
   double _visibleGlobalBottom;
+  WorkspaceCamera _camera;
   bool _reportScheduled = false;
 
   set registry(BlockGeometryRegistry value) {
@@ -89,6 +96,13 @@ class RenderWorkspaceViewportReporter extends RenderProxyBox {
     if (_visibleGlobalBottom == value) return;
     _visibleGlobalBottom = value;
     markNeedsPaint();
+  }
+
+  set camera(WorkspaceCamera value) {
+    if (_camera == value) return;
+    _camera = value;
+    markNeedsPaint();
+    _scheduleReport();
   }
 
   @override
@@ -136,6 +150,7 @@ class RenderWorkspaceViewportReporter extends RenderProxyBox {
             size.height,
           ),
           scrollOffset: SpatialPoint(0, _readScrollOffset()),
+          camera: _camera,
           keyboardInset: _keyboardInset,
           visibleGlobalBottom: _visibleGlobalBottom,
         ),
@@ -256,6 +271,7 @@ class RenderBlockGeometryReporter extends RenderProxyBox {
       _reportScheduled = false;
       if (!attached || !hasSize) return;
       final origin = localToGlobal(Offset.zero);
+      final bottomRight = localToGlobal(Offset(size.width, size.height));
       _registry.register(
         blockId: _blockId,
         workspaceId: _workspaceId,
@@ -263,8 +279,8 @@ class RenderBlockGeometryReporter extends RenderProxyBox {
         globalBounds: SpatialRect.fromLTWH(
           origin.dx,
           origin.dy,
-          size.width,
-          size.height,
+          (bottomRight.dx - origin.dx).abs(),
+          (bottomRight.dy - origin.dy).abs(),
         ),
         localBounds: SpatialRect.fromLTWH(0, 0, size.width, size.height),
         layer: _layer,
@@ -412,11 +428,12 @@ class RenderInteractionRegionReporter extends RenderProxyBox {
         return;
       }
       final origin = localToGlobal(Offset.zero);
+      final bottomRight = localToGlobal(Offset(size.width, size.height));
       final globalBounds = SpatialRect.fromLTWH(
         origin.dx,
         origin.dy,
-        size.width,
-        size.height,
+        (bottomRight.dx - origin.dx).abs(),
+        (bottomRight.dy - origin.dy).abs(),
       );
       _registry.updateRegion(
         InteractionRegion(

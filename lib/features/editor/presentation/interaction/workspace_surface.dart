@@ -2,7 +2,9 @@ import 'package:allministrator/domain/interaction/interaction.dart';
 import 'package:allministrator/features/editor/presentation/interaction/geometry_reporting.dart';
 import 'package:allministrator/features/editor/presentation/interaction/platform_input_adapters.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 const bool _geometryDebugEnabled = bool.fromEnvironment(
   'WORKSPACE_GEOMETRY_DEBUG',
@@ -26,6 +28,8 @@ class WorkspaceSurface extends StatelessWidget {
     this.keyboardInset,
     this.inputDispatcher,
     this.overlayController,
+    this.viewportController,
+    this.isBlockResizable,
     super.key,
   });
 
@@ -42,6 +46,8 @@ class WorkspaceSurface extends StatelessWidget {
   final double? keyboardInset;
   final InputDispatcher? inputDispatcher;
   final InteractionOverlayController? overlayController;
+  final WorkspaceViewportController? viewportController;
+  final bool Function(String blockId)? isBlockResizable;
 
   @override
   Widget build(BuildContext context) {
@@ -49,20 +55,48 @@ class WorkspaceSurface extends StatelessWidget {
         this.keyboardInset ?? MediaQuery.viewInsetsOf(context).bottom;
     final visibleGlobalBottom =
         MediaQuery.sizeOf(context).height - keyboardInset;
+    Widget viewportContent(WorkspaceCamera camera) => WorkspaceViewportReporter(
+      registry: registry,
+      scrollListenable: scrollController,
+      readScrollOffset: () =>
+          scrollController.hasClients ? scrollController.offset : 0,
+      keyboardInset: keyboardInset,
+      visibleGlobalBottom: visibleGlobalBottom,
+      camera: camera,
+      child: LayoutBuilder(
+        builder: (_, constraints) => ClipRect(
+          child: Transform.translate(
+            offset: Offset(camera.translation.x, camera.translation.y),
+            child: Transform.scale(
+              scale: camera.zoom,
+              alignment: Alignment.topLeft,
+              child: OverflowBox(
+                alignment: Alignment.topLeft,
+                minWidth: 0,
+                minHeight: 0,
+                maxWidth: double.infinity,
+                maxHeight: double.infinity,
+                child: SizedBox(
+                  width: constraints.maxWidth / camera.zoom,
+                  height: constraints.maxHeight / camera.zoom,
+                  child: content,
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    final transformedContent = viewportController == null
+        ? viewportContent(const WorkspaceCamera())
+        : AnimatedBuilder(
+            animation: viewportController!,
+            builder: (_, _) => viewportContent(viewportController!.camera),
+          );
     final layers = Stack(
       fit: StackFit.expand,
       children: [
-        ContentLayer(
-          child: WorkspaceViewportReporter(
-            registry: registry,
-            scrollListenable: scrollController,
-            readScrollOffset: () =>
-                scrollController.hasClients ? scrollController.offset : 0,
-            keyboardInset: keyboardInset,
-            visibleGlobalBottom: visibleGlobalBottom,
-            child: content,
-          ),
-        ),
+        ContentLayer(child: transformedContent),
         DecorationLayer(
           registry: registry,
           interaction: interaction,
@@ -89,6 +123,8 @@ class WorkspaceSurface extends StatelessWidget {
       pageId: pageId,
       scrollController: scrollController,
       inputDispatcher: inputDispatcher,
+      viewportController: viewportController,
+      isBlockResizable: isBlockResizable,
       child: layers,
     );
   }
@@ -140,6 +176,8 @@ class InteractionLayer extends StatelessWidget {
     required this.pageId,
     required this.scrollController,
     this.inputDispatcher,
+    this.viewportController,
+    this.isBlockResizable,
     required this.child,
     super.key,
   });
@@ -150,35 +188,54 @@ class InteractionLayer extends StatelessWidget {
   final String pageId;
   final ScrollController scrollController;
   final InputDispatcher? inputDispatcher;
+  final WorkspaceViewportController? viewportController;
+  final bool Function(String blockId)? isBlockResizable;
   final Widget child;
   static const _autoScrollPolicy = DragAutoScrollPolicy();
 
   @override
-  Widget build(BuildContext context) => Listener(
-    behavior: HitTestBehavior.translucent,
-    onPointerDown: (event) => _updatePointer(event, isDown: true),
-    onPointerMove: (event) => _updatePointer(event, isDown: true),
-    onPointerUp: (event) => _updatePointer(event, isDown: false),
-    onPointerCancel: (event) =>
-        _dispatchPointer(event, NormalizedInputEventType.pointerCancel),
-    child: Stack(
-      fit: StackFit.expand,
-      children: [
-        child,
-        AnimatedBuilder(
-          animation: registry,
-          builder: (context, _) {
-            final viewport = registry.viewport;
-            if (viewport == null) return const SizedBox.shrink();
-            return Stack(
-              children: [
-                for (final entry in registry.visibleBlocks)
-                  _handleTarget(context, entry, viewport),
-              ],
-            );
-          },
-        ),
-      ],
+  Widget build(BuildContext context) => _ViewportGestureLayer(
+    controller: viewportController,
+    interaction: interaction,
+    child: Listener(
+      behavior: HitTestBehavior.translucent,
+      onPointerDown: (event) => _updatePointer(event, isDown: true),
+      onPointerMove: (event) => _updatePointer(event, isDown: true),
+      onPointerUp: (event) => _updatePointer(event, isDown: false),
+      onPointerCancel: (event) =>
+          _dispatchPointer(event, NormalizedInputEventType.pointerCancel),
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          child,
+          AnimatedBuilder(
+            animation: Listenable.merge([
+              registry,
+              interaction.blockStateRevision,
+            ]),
+            builder: (context, _) {
+              final viewport = registry.viewport;
+              if (viewport == null) return const SizedBox.shrink();
+              final selectedId = interaction.context.selectedBlock;
+              final selected = selectedId == null
+                  ? null
+                  : registry.geometryFor(selectedId);
+              return Stack(
+                children: [
+                  for (final entry in registry.visibleBlocks)
+                    _handleTarget(context, entry, viewport),
+                  if (selected != null &&
+                      interaction.context.editingBlock == null &&
+                      interaction.context.activeSession is! ResizeSession &&
+                      (isBlockResizable?.call(selected.blockId) ?? false))
+                    for (final handle in ResizeHandle.values)
+                      _resizeHandleTarget(context, selected, viewport, handle),
+                ],
+              );
+            },
+          ),
+        ],
+      ),
     ),
   );
 
@@ -189,9 +246,16 @@ class InteractionLayer extends StatelessWidget {
       PointerUpEvent() => NormalizedInputEventType.pointerUp,
       _ => NormalizedInputEventType.pointerMove,
     };
-    final wasMarquee = interaction.context.activeSession is MarqueeSelectionSession;
+    final activeSession = interaction.context.activeSession;
+    final wasTransientTransform =
+        activeSession is MarqueeSelectionSession ||
+        activeSession is ResizeSession;
+    final wasViewportGesture = viewportController?.isGestureActive ?? false;
     _dispatchPointer(event, type, isDown: isDown);
-    if (event is PointerUpEvent && !wasMarquee && inputDispatcher != null) {
+    if (event is PointerUpEvent &&
+        !wasTransientTransform &&
+        !wasViewportGesture &&
+        inputDispatcher != null) {
       final point = SpatialPoint(event.position.dx, event.position.dy);
       final hit = registry.hitTest(point);
       inputDispatcher!.dispatch(
@@ -319,6 +383,189 @@ class InteractionLayer extends StatelessWidget {
       ),
     );
   }
+
+  Widget _resizeHandleTarget(
+    BuildContext context,
+    BlockGeometryEntry entry,
+    WorkspaceViewportGeometry viewport,
+    ResizeHandle handle,
+  ) {
+    final globalBounds = WorkspaceOverlayGeometry.resizeHandleBounds(
+      entry,
+      handle,
+    );
+    final localBounds = globalBounds.translate(
+      -viewport.globalBounds.left,
+      -viewport.globalBounds.top,
+    );
+    return Positioned(
+      left: localBounds.left,
+      top: localBounds.top,
+      width: localBounds.width,
+      height: localBounds.height,
+      child: Semantics(
+        label: 'Redimensionar bloque',
+        child: InteractionRegionReporter(
+          key: ValueKey('resize-${entry.blockId}-${handle.name}'),
+          registry: registry,
+          blockId: entry.blockId,
+          regionId: 'resize-${handle.name}',
+          target: ResizeHandleHitTarget(entry.blockId, handle: handle),
+          priority: 200,
+          child: MouseRegion(
+            cursor: handle == ResizeHandle.east
+                ? SystemMouseCursors.resizeLeftRight
+                : handle == ResizeHandle.south
+                ? SystemMouseCursors.resizeUpDown
+                : SystemMouseCursors.resizeDownRight,
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                color: Theme.of(context).colorScheme.primary,
+                shape: BoxShape.circle,
+                border: Border.all(
+                  color: Theme.of(context).colorScheme.surface,
+                  width: 2,
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ViewportGestureLayer extends StatefulWidget {
+  const _ViewportGestureLayer({
+    required this.controller,
+    required this.interaction,
+    required this.child,
+  });
+
+  final WorkspaceViewportController? controller;
+  final WorkspaceInteractionController interaction;
+  final Widget child;
+
+  @override
+  State<_ViewportGestureLayer> createState() => _ViewportGestureLayerState();
+}
+
+class _ViewportGestureLayerState extends State<_ViewportGestureLayer> {
+  final Map<int, Offset> _touches = {};
+  Offset? _lastFocal;
+  double? _lastDistance;
+  int? _mousePanPointer;
+  Offset? _lastMousePosition;
+
+  @override
+  Widget build(BuildContext context) => Listener(
+    behavior: HitTestBehavior.translucent,
+    onPointerDown: _pointerDown,
+    onPointerMove: _pointerMove,
+    onPointerUp: _pointerUp,
+    onPointerCancel: _pointerUp,
+    onPointerSignal: _pointerSignal,
+    child: widget.child,
+  );
+
+  void _pointerDown(PointerDownEvent event) {
+    final controller = widget.controller;
+    if (controller == null) return;
+    if (event.kind == PointerDeviceKind.mouse &&
+        event.buttons == kMiddleMouseButton) {
+      _mousePanPointer = event.pointer;
+      _lastMousePosition = event.localPosition;
+      controller.beginGesture();
+      widget.interaction.dispatch(
+        const CancelInteractionIntent(keepBlockSelected: true),
+      );
+      return;
+    }
+    if (event.kind != PointerDeviceKind.touch) return;
+    _touches[event.pointer] = event.localPosition;
+    if (_touches.length == 2) {
+      controller.beginGesture();
+      final points = _touches.values.toList();
+      _lastFocal = Offset(
+        (points[0].dx + points[1].dx) / 2,
+        (points[0].dy + points[1].dy) / 2,
+      );
+      _lastDistance = (points[0] - points[1]).distance;
+      widget.interaction.dispatch(
+        const CancelInteractionIntent(keepBlockSelected: true),
+      );
+    }
+  }
+
+  void _pointerMove(PointerMoveEvent event) {
+    final controller = widget.controller;
+    if (controller == null) return;
+    if (_mousePanPointer == event.pointer && _lastMousePosition != null) {
+      final delta = event.localPosition - _lastMousePosition!;
+      controller.panBy(SpatialPoint(delta.dx, delta.dy));
+      _lastMousePosition = event.localPosition;
+      return;
+    }
+    if (!_touches.containsKey(event.pointer)) return;
+    _touches[event.pointer] = event.localPosition;
+    if (_touches.length != 2 || _lastFocal == null || _lastDistance == null) {
+      return;
+    }
+    final points = _touches.values.toList();
+    final focal = Offset(
+      (points[0].dx + points[1].dx) / 2,
+      (points[0].dy + points[1].dy) / 2,
+    );
+    final distance = (points[0] - points[1]).distance;
+    final pan = focal - _lastFocal!;
+    controller.panBy(SpatialPoint(pan.dx, pan.dy));
+    if (_lastDistance! > 0) {
+      controller.zoomBy(
+        distance / _lastDistance!,
+        focalPoint: SpatialPoint(focal.dx, focal.dy),
+      );
+    }
+    _lastFocal = focal;
+    _lastDistance = distance;
+  }
+
+  void _pointerUp(PointerEvent event) {
+    _touches.remove(event.pointer);
+    if (_touches.length < 2) {
+      _lastFocal = null;
+      _lastDistance = null;
+    }
+    if (_touches.isEmpty && _mousePanPointer == null) {
+      widget.controller?.endGesture();
+    }
+    if (_mousePanPointer == event.pointer) {
+      _mousePanPointer = null;
+      _lastMousePosition = null;
+      if (_touches.isEmpty) widget.controller?.endGesture();
+    }
+  }
+
+  void _pointerSignal(PointerSignalEvent event) {
+    final controller = widget.controller;
+    if (controller == null || event is! PointerScrollEvent) return;
+    final keys = HardwareKeyboard.instance.logicalKeysPressed;
+    final modified =
+        keys.contains(LogicalKeyboardKey.controlLeft) ||
+        keys.contains(LogicalKeyboardKey.controlRight) ||
+        keys.contains(LogicalKeyboardKey.metaLeft) ||
+        keys.contains(LogicalKeyboardKey.metaRight);
+    if (!modified) return;
+    GestureBinding.instance.pointerSignalResolver.register(event, (_) {
+      final factor = event.scrollDelta.dy < 0 ? 1.1 : 1 / 1.1;
+      controller.zoomBy(
+        factor,
+        focalPoint: SpatialPoint(
+          event.localPosition.dx,
+          event.localPosition.dy,
+        ),
+      );
+    });
+  }
 }
 
 class OverlayLayer extends StatelessWidget {
@@ -396,6 +643,9 @@ class ModalLayer extends StatelessWidget {
     return AnimatedBuilder(
       animation: Listenable.merge([registry, interaction.blockStateRevision]),
       builder: (context, _) {
+        if (interaction.context.activeSession is ResizeSession) {
+          return const SizedBox.shrink();
+        }
         final blockId = interaction.context.selectedBlock;
         final viewport = registry.viewport;
         final entry = blockId == null ? null : registry.geometryFor(blockId);
@@ -452,6 +702,7 @@ class WorkspaceOverlayMetrics {
   static const double toolbarGap = 8;
   static const double toolbarEstimatedHeight = 48;
   static const double surfaceEdgeInset = 8;
+  static const double resizeHandleSize = 16;
 }
 
 class WorkspaceOverlayGeometry {
@@ -469,6 +720,28 @@ class WorkspaceOverlayGeometry {
 
   static SpatialPoint toolbarAnchor(BlockGeometryEntry entry) =>
       entry.toolbarAnchor;
+
+  static SpatialRect resizeHandleBounds(
+    BlockGeometryEntry entry,
+    ResizeHandle handle,
+  ) {
+    final bounds = transformBounds(entry);
+    final half = WorkspaceOverlayMetrics.resizeHandleSize / 2;
+    final point = switch (handle) {
+      ResizeHandle.east => SpatialPoint(bounds.right, bounds.center.y),
+      ResizeHandle.south => SpatialPoint(bounds.center.x, bounds.bottom),
+      ResizeHandle.southEast => SpatialPoint(bounds.right, bounds.bottom),
+    };
+    return SpatialRect.fromLTWH(
+      point.x - half,
+      point.y - half,
+      WorkspaceOverlayMetrics.resizeHandleSize,
+      WorkspaceOverlayMetrics.resizeHandleSize,
+    );
+  }
+
+  static SpatialRect transformBounds(BlockGeometryEntry entry) =>
+      entry.regions['image']?.globalBounds ?? entry.globalBounds;
 }
 
 class _DecorationPainter extends CustomPainter {
@@ -620,6 +893,30 @@ class _OverlayPainter extends CustomPainter {
           ..strokeWidth = 1
           ..color = colorScheme.primary,
       );
+    }
+    if (visual?.resizePreviewBounds case final preview?) {
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(
+          _toRect(preview, origin),
+          const Radius.circular(WorkspaceOverlayMetrics.borderRadius),
+        ),
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 2
+          ..color = colorScheme.primary,
+      );
+    }
+    for (final guide in visual?.smartGuides ?? const <SmartGuide>[]) {
+      final paint = Paint()
+        ..color = colorScheme.tertiary
+        ..strokeWidth = 1;
+      if (guide.axis == SmartGuideAxis.vertical) {
+        final x = guide.position - origin.x;
+        canvas.drawLine(Offset(x, 0), Offset(x, size.height), paint);
+      } else {
+        final y = guide.position - origin.y;
+        canvas.drawLine(Offset(0, y), Offset(size.width, y), paint);
+      }
     }
   }
 

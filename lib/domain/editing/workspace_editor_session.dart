@@ -5,6 +5,8 @@ import 'package:allministrator/core/utils/uuid_generator.dart';
 import 'package:allministrator/domain/blocks/blocks.dart';
 import 'package:allministrator/domain/entities/workspace.dart';
 import 'package:allministrator/domain/entities/workspace_page.dart';
+import 'package:allministrator/domain/interaction/spatial_geometry.dart';
+import 'package:allministrator/domain/interaction/transformation_engine.dart';
 import 'package:allministrator/domain/value_objects/structured_document.dart';
 import 'package:flutter/foundation.dart';
 
@@ -235,12 +237,16 @@ class WorkspaceEditorSession extends ChangeNotifier {
     final selectedIds = blockIds.toSet();
     if (selectedIds.isEmpty) return;
     final ordered = blocks;
-    final moving = ordered.where((block) => selectedIds.contains(block.id)).toList();
+    final moving = ordered
+        .where((block) => selectedIds.contains(block.id))
+        .toList();
     if (moving.length != selectedIds.length ||
         moving.any((block) => !block.supports(BlockCapability.movable))) {
       return;
     }
-    final next = ordered.where((block) => !selectedIds.contains(block.id)).toList();
+    final next = ordered
+        .where((block) => !selectedIds.contains(block.id))
+        .toList();
     var insertionIndex = targetBlockId == null
         ? next.length
         : next.indexWhere((block) => block.id == targetBlockId);
@@ -277,6 +283,115 @@ class WorkspaceEditorSession extends ChangeNotifier {
     _commit(
       _replaceBlocks(_normalizeOrder(next, now), now: now),
       kind: 'deleteMultipleBlocks',
+      blockId: selected.first.id,
+      refreshPresentation: true,
+    );
+  }
+
+  void resizeBlock(String blockId, SpatialRect workspaceBounds) {
+    final block = blockById(blockId);
+    if (block == null ||
+        block.isLocked ||
+        !block.supports(BlockCapability.resizable)) {
+      return;
+    }
+    final nextGeometry = block.geometry.copyWith(
+      width: workspaceBounds.width,
+      height: workspaceBounds.height,
+    );
+    updateBlock(
+      block.copyWithCommon(geometry: nextGeometry),
+      kind: 'resizeBlock',
+      refreshPresentation: true,
+    );
+  }
+
+  void alignBlocks(
+    Iterable<String> blockIds,
+    Map<String, SpatialRect> workspaceBounds,
+    BlockAlignmentAxis alignment,
+  ) {
+    final ids = blockIds.toSet();
+    final selected = blocks.where((block) => ids.contains(block.id)).toList();
+    if (selected.length < 2 ||
+        selected.any((block) => !workspaceBounds.containsKey(block.id)) ||
+        selected.any(
+          (block) => block.isLocked || !block.supports(BlockCapability.movable),
+        )) {
+      return;
+    }
+    final deltas = const TransformationEngine().align({
+      for (final block in selected) block.id: workspaceBounds[block.id]!,
+    }, alignment);
+    _transformBlocks(
+      selected,
+      deltas,
+      kind: 'alignBlocks',
+      alignment: alignment,
+    );
+  }
+
+  void distributeBlocksVertically(
+    Iterable<String> blockIds,
+    Map<String, SpatialRect> workspaceBounds,
+  ) {
+    final ids = blockIds.toSet();
+    final selected = blocks.where((block) => ids.contains(block.id)).toList();
+    if (selected.length < 3 ||
+        selected.any((block) => !workspaceBounds.containsKey(block.id)) ||
+        selected.any(
+          (block) => block.isLocked || !block.supports(BlockCapability.movable),
+        )) {
+      return;
+    }
+    final deltas = const TransformationEngine().distributeVertically(
+      blocks.map((block) => block.id).toList(),
+      {for (final block in selected) block.id: workspaceBounds[block.id]!},
+    );
+    _transformBlocks(selected, deltas, kind: 'distributeBlocks');
+  }
+
+  void _transformBlocks(
+    List<BaseBlock> selected,
+    Map<String, SpatialPoint> deltas, {
+    required String kind,
+    BlockAlignmentAxis? alignment,
+  }) {
+    if (deltas.isEmpty) return;
+    final selectedIds = selected.map((block) => block.id).toSet();
+    final now = DateTime.now().toUtc();
+    var changed = false;
+    final next = <BaseBlock>[];
+    for (final block in blocks) {
+      final delta = deltas[block.id];
+      if (!selectedIds.contains(block.id) || delta == null) {
+        next.add(block);
+        continue;
+      }
+      var transformed = block.copyWithCommon(
+        geometry: block.geometry.copyWith(
+          x: block.geometry.x + delta.x,
+          y: block.geometry.y + delta.y,
+        ),
+        updatedAt: now,
+        version: block.version + 1,
+      );
+      if (transformed is ImageBlock && alignment != null) {
+        final imageAlignment = switch (alignment) {
+          BlockAlignmentAxis.left => BlockAlignment.left,
+          BlockAlignmentAxis.horizontalCenter => BlockAlignment.center,
+          BlockAlignmentAxis.right => BlockAlignment.right,
+          _ => transformed.alignment,
+        };
+        transformed = transformed.copyWith(alignment: imageAlignment);
+      }
+      changed = changed || !mapEquals(block.toJson(), transformed.toJson());
+      next.add(transformed);
+    }
+    if (!changed) return;
+    _commit(
+      _replaceBlocks(next, now: now),
+      kind: kind,
       blockId: selected.first.id,
       refreshPresentation: true,
     );

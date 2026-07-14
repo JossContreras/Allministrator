@@ -31,10 +31,12 @@ class DropResolver {
     }
     final candidates =
         registry.entries
-            .where((entry) =>
-                entry.blockId != sourceBlockId &&
-                !sourceBlockIds.contains(entry.blockId) &&
-                entry.isVisible)
+            .where(
+              (entry) =>
+                  entry.blockId != sourceBlockId &&
+                  !sourceBlockIds.contains(entry.blockId) &&
+                  entry.isVisible,
+            )
             .toList()
           ..sort((a, b) => a.layer.compareTo(b.layer));
     if (candidates.isEmpty) {

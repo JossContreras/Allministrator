@@ -5,6 +5,52 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  testWidgets('surface scales geometry and exposes reusable resize handles', (
+    tester,
+  ) async {
+    final registry = BlockGeometryRegistry();
+    final interaction = WorkspaceInteractionController()
+      ..dispatch(const SelectBlockIntent('block'));
+    final scrollController = ScrollController();
+    final viewportController = WorkspaceViewportController();
+    addTearDown(registry.dispose);
+    addTearDown(interaction.dispose);
+    addTearDown(scrollController.dispose);
+    addTearDown(viewportController.dispose);
+
+    await tester.pumpWidget(
+      _surface(
+        registry: registry,
+        interaction: interaction,
+        scrollController: scrollController,
+        viewportController: viewportController,
+        resizable: true,
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    final height = registry.geometryFor('block')!.globalBounds.height;
+    final viewportDimension = scrollController.position.viewportDimension;
+    expect(find.byKey(const ValueKey('resize-block-east')), findsOneWidget);
+    expect(find.byKey(const ValueKey('resize-block-south')), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('resize-block-southEast')),
+      findsOneWidget,
+    );
+
+    viewportController.setZoom(1.5, focalPoint: const SpatialPoint(0, 0));
+    await tester.pump();
+    await tester.pump();
+    expect(
+      registry.geometryFor('block')!.globalBounds.height,
+      closeTo(height * 1.5, .1),
+    );
+    expect(
+      scrollController.position.viewportDimension,
+      closeTo(viewportDimension / 1.5, .1),
+    );
+  });
+
   testWidgets('surface registers layout and aligns selection handle overlay', (
     tester,
   ) async {
@@ -219,6 +265,8 @@ Widget _surface({
   bool debugGeometry = false,
   bool showModal = false,
   ValueNotifier<bool>? visible,
+  WorkspaceViewportController? viewportController,
+  bool resizable = false,
 }) => MaterialApp(
   theme: ThemeData(brightness: brightness),
   home: MediaQuery(
@@ -235,6 +283,8 @@ Widget _surface({
         scrollController: scrollController,
         debugGeometry: debugGeometry,
         keyboardInset: keyboardInset,
+        viewportController: viewportController,
+        isBlockResizable: resizable ? (_) => true : null,
         modalBuilder: showModal
             ? (_, _) => const SizedBox(
                 key: ValueKey('modal-actions'),

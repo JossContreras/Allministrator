@@ -7,6 +7,7 @@ import 'package:allministrator/domain/interaction/interaction_models.dart';
 import 'package:allministrator/domain/interaction/spatial_geometry.dart';
 import 'package:allministrator/domain/interaction/marquee_selection_session.dart';
 import 'package:allministrator/domain/interaction/selection_group.dart';
+import 'package:allministrator/domain/interaction/transformation_engine.dart';
 import 'package:flutter/foundation.dart';
 
 typedef UnhandledInteractionIntent = void Function(InteractionIntent intent);
@@ -76,9 +77,19 @@ class WorkspaceInteractionController extends ChangeNotifier {
         _updateDrag(intent);
       case CommitDragIntent():
         _commitDrag(intent);
+      case BeginResizeIntent():
+        _beginResize(intent);
+      case UpdateResizeIntent():
+        _updateResize(intent);
+      case CommitResizeIntent():
+        _commitResize(intent);
+      case CancelResizeIntent():
+        _cancelResize();
       case DeleteSelectionIntent() || CopySelectionIntent():
         onUnhandledIntent?.call(intent);
-      case ResizeIntent() ||
+      case AlignSelectionIntent() ||
+          DistributeSelectionIntent() ||
+          ResizeIntent() ||
           RotateIntent() ||
           StartHandwritingIntent() ||
           PanViewportIntent() ||
@@ -127,11 +138,18 @@ class WorkspaceInteractionController extends ChangeNotifier {
 
   void _selectRange(SelectRangeIntent intent) {
     final group = _selectionGroup;
-    final anchor = group.anchorBlockId ?? group.primaryBlockId ?? intent.blockId;
+    final anchor =
+        group.anchorBlockId ?? group.primaryBlockId ?? intent.blockId;
     final first = intent.visualOrder.indexOf(anchor);
     final last = intent.visualOrder.indexOf(intent.blockId);
     if (first < 0 || last < 0) {
-      _setGroup(SelectionGroup(blockIds: [intent.blockId], primaryBlockId: intent.blockId, anchorBlockId: intent.blockId));
+      _setGroup(
+        SelectionGroup(
+          blockIds: [intent.blockId],
+          primaryBlockId: intent.blockId,
+          anchorBlockId: intent.blockId,
+        ),
+      );
       return;
     }
     final from = first < last ? first : last;
@@ -163,7 +181,9 @@ class WorkspaceInteractionController extends ChangeNotifier {
           initialGroup: initial,
         ),
         interactionMode: InteractionMode.multiSelection,
-        currentSelection: MultiBlockSelection(initial.copyWith(isTemporary: true)),
+        currentSelection: MultiBlockSelection(
+          initial.copyWith(isTemporary: true),
+        ),
       ),
     );
   }
@@ -173,7 +193,9 @@ class WorkspaceInteractionController extends ChangeNotifier {
     if (session is! MarqueeSelectionSession) return;
     final group = SelectionGroup(
       blockIds: intent.candidateIds,
-      primaryBlockId: intent.candidateIds.isEmpty ? null : intent.candidateIds.last,
+      primaryBlockId: intent.candidateIds.isEmpty
+          ? null
+          : intent.candidateIds.last,
       anchorBlockId: session.initialGroup.anchorBlockId,
       isTemporary: true,
     ).normalized();
@@ -266,6 +288,76 @@ class WorkspaceInteractionController extends ChangeNotifier {
                 anchorBlockId: session.primaryBlockId ?? session.blockId,
               )
             : BlockSelection(session.blockId!),
+      ),
+    );
+  }
+
+  void _beginResize(BeginResizeIntent intent) {
+    final pointer = _context.currentPointer;
+    if (pointer == null ||
+        _context.activeSession != null ||
+        _context.activeTool != WorkspaceTool.selection) {
+      onUnhandledIntent?.call(intent);
+      return;
+    }
+    _clearFocusWithoutCallback();
+    _setContext(
+      _context.copyWith(
+        selectedBlock: intent.blockId,
+        focusedBlock: null,
+        editingBlock: null,
+        activeSession: ResizeSession(
+          id: generateUuid(),
+          startedAt: DateTime.now().toUtc(),
+          blockId: intent.blockId,
+          pointerId: pointer.pointerId,
+          handle: intent.handle,
+          startPosition: SpatialPoint(intent.position.x, intent.position.y),
+          currentPosition: SpatialPoint(intent.position.x, intent.position.y),
+          initialBounds: intent.initialBounds,
+          previewBounds: intent.initialBounds,
+        ),
+        interactionMode: InteractionMode.resizing,
+        currentSelection: BlockSelection(intent.blockId),
+        overlayState: const InteractionOverlayState(),
+      ),
+    );
+  }
+
+  void _updateResize(UpdateResizeIntent intent) {
+    final session = _context.activeSession;
+    if (session is! ResizeSession) return;
+    _setContext(
+      _context.copyWith(
+        activeSession: session.copyWith(
+          currentPosition: SpatialPoint(intent.position.x, intent.position.y),
+          previewBounds: intent.previewBounds,
+          guides: intent.guides,
+        ),
+      ),
+    );
+  }
+
+  void _commitResize(CommitResizeIntent intent) {
+    final session = _context.activeSession;
+    if (session is! ResizeSession || session.blockId != intent.blockId) return;
+    _setContext(
+      _context.copyWith(
+        activeSession: null,
+        interactionMode: InteractionMode.blockSelected,
+        currentSelection: BlockSelection(intent.blockId),
+      ),
+    );
+  }
+
+  void _cancelResize() {
+    final session = _context.activeSession;
+    if (session is! ResizeSession) return;
+    _setContext(
+      _context.copyWith(
+        activeSession: null,
+        interactionMode: InteractionMode.blockSelected,
+        currentSelection: BlockSelection(session.blockId!),
       ),
     );
   }

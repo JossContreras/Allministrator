@@ -14,6 +14,8 @@ class WorkspaceBlockActions extends StatelessWidget {
     required this.onReplaceAttachment,
     required this.onOpenAttachment,
     required this.onEditAttachmentDetails,
+    this.onAlignSelection = _ignoreAlignment,
+    this.onDistributeSelection = _ignoreAction,
     super.key,
   });
 
@@ -25,86 +27,119 @@ class WorkspaceBlockActions extends StatelessWidget {
   final Future<void> Function(AttachmentBlock block) onReplaceAttachment;
   final Future<void> Function(AttachmentBlock block) onOpenAttachment;
   final Future<void> Function(AttachmentBlock block) onEditAttachmentDetails;
+  final ValueChanged<BlockAlignmentAxis> onAlignSelection;
+  final VoidCallback onDistributeSelection;
 
   @override
-  Widget build(BuildContext context) => Material(
-    elevation: 3,
-    color: Theme.of(context).colorScheme.surfaceContainerHigh,
-    borderRadius: BorderRadius.circular(10),
-    child: SingleChildScrollView(
-      scrollDirection: Axis.horizontal,
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          if (block.supports(BlockCapability.movable)) ...[
-            _button(
-              tooltip: 'Mover arriba',
-              icon: Icons.keyboard_arrow_up,
-              onPressed: () => session.moveBlock(block.id, -1),
-            ),
-            _button(
-              tooltip: 'Mover abajo',
-              icon: Icons.keyboard_arrow_down,
-              onPressed: () => session.moveBlock(block.id, 1),
-            ),
+  Widget build(BuildContext context) {
+    final selectionCount = switch (interaction.context.currentSelection) {
+      MultiBlockSelection(:final group) => group.count,
+      BlockSelection() => 1,
+      _ => 0,
+    };
+    return Material(
+      elevation: 3,
+      color: Theme.of(context).colorScheme.surfaceContainerHigh,
+      borderRadius: BorderRadius.circular(10),
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (selectionCount >= 2) ...[
+              _button(
+                tooltip: 'Alinear a la izquierda',
+                icon: Icons.align_horizontal_left,
+                onPressed: () => onAlignSelection(BlockAlignmentAxis.left),
+              ),
+              _button(
+                tooltip: 'Centrar horizontalmente',
+                icon: Icons.align_horizontal_center,
+                onPressed: () =>
+                    onAlignSelection(BlockAlignmentAxis.horizontalCenter),
+              ),
+              _button(
+                tooltip: 'Alinear a la derecha',
+                icon: Icons.align_horizontal_right,
+                onPressed: () => onAlignSelection(BlockAlignmentAxis.right),
+              ),
+              if (selectionCount >= 3)
+                _button(
+                  tooltip: 'Distribuir verticalmente',
+                  icon: Icons.space_bar,
+                  onPressed: onDistributeSelection,
+                ),
+            ],
+            if (block.supports(BlockCapability.movable)) ...[
+              _button(
+                tooltip: 'Mover arriba',
+                icon: Icons.keyboard_arrow_up,
+                onPressed: () => session.moveBlock(block.id, -1),
+              ),
+              _button(
+                tooltip: 'Mover abajo',
+                icon: Icons.keyboard_arrow_down,
+                onPressed: () => session.moveBlock(block.id, 1),
+              ),
+            ],
+            if (block is TextBlock && session.canMergeTextWithNext(block.id))
+              _button(
+                tooltip: 'Fusionar con el siguiente texto',
+                icon: Icons.merge_type,
+                onPressed: () => session.mergeTextWithNext(block.id),
+              ),
+            if (_optionsFor(block).isNotEmpty)
+              PopupMenuButton<String>(
+                tooltip: 'Opciones del bloque',
+                icon: const Icon(Icons.tune),
+                onOpened: () => interaction.dispatch(
+                  OpenContextMenuIntent(blockId: block.id),
+                ),
+                onCanceled: _finishMenu,
+                onSelected: (value) {
+                  _handleOption(value);
+                  _finishMenu();
+                },
+                itemBuilder: (_) => _optionsFor(block),
+              ),
+            if (block.supports(BlockCapability.duplicable))
+              _button(
+                tooltip: 'Duplicar bloque',
+                icon: Icons.content_copy_outlined,
+                onPressed: () {
+                  final duplicateId = session.duplicateBlock(block.id);
+                  if (duplicateId != null) {
+                    interaction.dispatch(SelectBlockIntent(duplicateId));
+                  }
+                },
+              ),
+            if (block.supports(BlockCapability.lockable))
+              _button(
+                tooltip: block.isLocked ? 'Desbloquear' : 'Bloquear',
+                icon: block.isLocked ? Icons.lock : Icons.lock_open,
+                onPressed: () => _update(
+                  block.copyWithCommon(isLocked: !block.isLocked),
+                  'lockBlock',
+                ),
+              ),
+            if (block.supports(BlockCapability.deletable))
+              _button(
+                tooltip: 'Eliminar bloque',
+                icon: Icons.delete_outline,
+                onPressed: () {
+                  interaction.dispatch(
+                    const CancelInteractionIntent(
+                      reason: InteractionCancellationReason.blockDeleted,
+                    ),
+                  );
+                  session.deleteBlock(block.id);
+                },
+              ),
           ],
-          if (block is TextBlock && session.canMergeTextWithNext(block.id))
-            _button(
-              tooltip: 'Fusionar con el siguiente texto',
-              icon: Icons.merge_type,
-              onPressed: () => session.mergeTextWithNext(block.id),
-            ),
-          if (_optionsFor(block).isNotEmpty)
-            PopupMenuButton<String>(
-              tooltip: 'Opciones del bloque',
-              icon: const Icon(Icons.tune),
-              onOpened: () => interaction.dispatch(
-                OpenContextMenuIntent(blockId: block.id),
-              ),
-              onCanceled: _finishMenu,
-              onSelected: (value) {
-                _handleOption(value);
-                _finishMenu();
-              },
-              itemBuilder: (_) => _optionsFor(block),
-            ),
-          if (block.supports(BlockCapability.duplicable))
-            _button(
-              tooltip: 'Duplicar bloque',
-              icon: Icons.content_copy_outlined,
-              onPressed: () {
-                final duplicateId = session.duplicateBlock(block.id);
-                if (duplicateId != null) {
-                  interaction.dispatch(SelectBlockIntent(duplicateId));
-                }
-              },
-            ),
-          if (block.supports(BlockCapability.lockable))
-            _button(
-              tooltip: block.isLocked ? 'Desbloquear' : 'Bloquear',
-              icon: block.isLocked ? Icons.lock : Icons.lock_open,
-              onPressed: () => _update(
-                block.copyWithCommon(isLocked: !block.isLocked),
-                'lockBlock',
-              ),
-            ),
-          if (block.supports(BlockCapability.deletable))
-            _button(
-              tooltip: 'Eliminar bloque',
-              icon: Icons.delete_outline,
-              onPressed: () {
-                interaction.dispatch(
-                  const CancelInteractionIntent(
-                    reason: InteractionCancellationReason.blockDeleted,
-                  ),
-                );
-                session.deleteBlock(block.id);
-              },
-            ),
-        ],
+        ),
       ),
-    ),
-  );
+    );
+  }
 
   Widget _button({
     required String tooltip,
@@ -360,3 +395,7 @@ class WorkspaceBlockActions extends StatelessWidget {
     BlockCalloutType.note => 'Nota',
   };
 }
+
+void _ignoreAlignment(BlockAlignmentAxis _) {}
+
+void _ignoreAction() {}

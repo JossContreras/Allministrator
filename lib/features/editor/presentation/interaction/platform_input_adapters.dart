@@ -4,7 +4,8 @@ import 'package:allministrator/core/utils/uuid_generator.dart';
 import 'package:allministrator/domain/interaction/interaction.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show KeyDownEvent, KeyEvent;
-import 'package:flutter/services.dart' show HardwareKeyboard, LogicalKeyboardKey;
+import 'package:flutter/services.dart'
+    show HardwareKeyboard, LogicalKeyboardKey;
 
 class PointerInputAdapter {
   const PointerInputAdapter();
@@ -37,13 +38,17 @@ class PointerInputAdapter {
   InputModifiers _modifiers() {
     final keys = HardwareKeyboard.instance.logicalKeysPressed;
     return InputModifiers(
-      control: keys.contains(LogicalKeyboardKey.controlLeft) ||
+      control:
+          keys.contains(LogicalKeyboardKey.controlLeft) ||
           keys.contains(LogicalKeyboardKey.controlRight),
-      shift: keys.contains(LogicalKeyboardKey.shiftLeft) ||
+      shift:
+          keys.contains(LogicalKeyboardKey.shiftLeft) ||
           keys.contains(LogicalKeyboardKey.shiftRight),
-      alt: keys.contains(LogicalKeyboardKey.altLeft) ||
+      alt:
+          keys.contains(LogicalKeyboardKey.altLeft) ||
           keys.contains(LogicalKeyboardKey.altRight),
-      meta: keys.contains(LogicalKeyboardKey.metaLeft) ||
+      meta:
+          keys.contains(LogicalKeyboardKey.metaLeft) ||
           keys.contains(LogicalKeyboardKey.metaRight),
     );
   }

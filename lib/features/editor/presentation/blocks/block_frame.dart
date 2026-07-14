@@ -29,24 +29,27 @@ class BlockFrame extends StatelessWidget {
     label: 'Bloque ${_label(block.type)}',
     child: Padding(
       padding: EdgeInsets.symmetric(vertical: compact ? 2 : 5),
-      child: BlockGeometryReporter(
-        registry: geometryRegistry,
-        blockId: block.id,
-        workspaceId: workspaceId,
-        pageId: pageId,
-        layer: visualLayer,
-        child: InteractionRegionReporter(
+      child: Transform.translate(
+        offset: Offset(block.geometry.x, block.geometry.y),
+        child: BlockGeometryReporter(
           registry: geometryRegistry,
           blockId: block.id,
-          regionId: 'block-background',
-          target: BlockBackgroundHitTarget(block.id),
+          workspaceId: workspaceId,
+          pageId: pageId,
+          layer: visualLayer,
           child: InteractionRegionReporter(
             registry: geometryRegistry,
             blockId: block.id,
-            regionId: 'block-content',
-            target: BlockContentHitTarget(block.id),
-            priority: 10,
-            child: child,
+            regionId: 'block-background',
+            target: BlockBackgroundHitTarget(block.id),
+            child: InteractionRegionReporter(
+              registry: geometryRegistry,
+              blockId: block.id,
+              regionId: 'block-content',
+              target: BlockContentHitTarget(block.id),
+              priority: 10,
+              child: child,
+            ),
           ),
         ),
       ),

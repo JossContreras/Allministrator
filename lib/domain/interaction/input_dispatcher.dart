@@ -12,6 +12,8 @@ import 'package:allministrator/domain/interaction/interaction_models.dart';
 import 'package:allministrator/domain/interaction/interaction_resolver.dart';
 import 'package:allministrator/domain/interaction/normalized_input_event.dart';
 import 'package:allministrator/domain/interaction/workspace_interaction_controller.dart';
+import 'package:allministrator/domain/interaction/geometry_resolver.dart';
+import 'package:allministrator/domain/interaction/transformation_engine.dart';
 
 typedef InteractionCommandSink =
     void Function(InteractionIntent intent, NormalizedInputEvent event);
@@ -28,6 +30,7 @@ class InputDispatcher {
     this.onResult,
     this.isModalActive,
     this.dropResolver,
+    this.snapResolver = const SnapResolver(),
     this.maxRememberedEvents = 100,
   });
 
@@ -40,6 +43,7 @@ class InputDispatcher {
   final InputDispatchObserver? onResult;
   final bool Function()? isModalActive;
   final DropResolver? dropResolver;
+  final SnapResolver snapResolver;
   final int maxRememberedEvents;
   final Queue<String> _eventIds = Queue();
   final Set<String> _seenIds = {};
@@ -64,6 +68,60 @@ class InputDispatcher {
       final event = _withResolvedHit(input);
       final activeSession = controller.context.activeSession;
       _trackPointer(event);
+      if (activeSession is ResizeSession &&
+          event.globalPosition != null &&
+          event.type == NormalizedInputEventType.pointerMove) {
+        final resolution = snapResolver.resolveResize(
+          session: activeSession,
+          position: event.globalPosition!,
+          candidates: registry.visibleBlocks
+              .where((entry) => entry.blockId != activeSession.blockId)
+              .map((entry) => entry.globalBounds),
+        );
+        controller.dispatch(
+          UpdateResizeIntent(
+            position: InteractionPoint(
+              event.globalPosition!.x,
+              event.globalPosition!.y,
+            ),
+            previewBounds: resolution.bounds,
+            guides: resolution.guides,
+          ),
+        );
+        return _publish(
+          event,
+          const InteractionIntentResult.state(
+            InteractionIntentResultKind.consumed,
+            reason: 'resize-update',
+          ),
+        );
+      }
+      if (activeSession is ResizeSession &&
+          event.type == NormalizedInputEventType.pointerUp) {
+        final workspaceBounds = GeometryResolver(registry).resolveRect(
+          activeSession.previewBounds,
+          from: GeometryCoordinateSpace.screen,
+          to: GeometryCoordinateSpace.workspace,
+        );
+        final intent = CommitResizeIntent(
+          blockId: activeSession.blockId!,
+          bounds: workspaceBounds,
+        );
+        controller.dispatch(intent);
+        onCommand?.call(intent, event);
+        return _publish(event, InteractionIntentResult.intent(intent));
+      }
+      if (activeSession is ResizeSession &&
+          event.type == NormalizedInputEventType.pointerCancel) {
+        controller.dispatch(const CancelResizeIntent());
+        return _publish(
+          event,
+          const InteractionIntentResult.state(
+            InteractionIntentResultKind.cancelled,
+            reason: 'resize-cancel',
+          ),
+        );
+      }
       if (activeSession is DragSession &&
           event.globalPosition != null &&
           event.type == NormalizedInputEventType.pointerMove) {
@@ -89,8 +147,9 @@ class InputDispatcher {
           event.globalPosition!.x,
           event.globalPosition!.y,
         );
-        final candidates = SelectionBoundsResolver(registry)
-            .intersecting(activeSession.copyWith(currentPosition: position).bounds);
+        final candidates = SelectionBoundsResolver(registry).intersecting(
+          activeSession.copyWith(currentPosition: position).bounds,
+        );
         controller.dispatch(
           UpdateMarqueeSelectionIntent(
             position: InteractionPoint(position.x, position.y),
@@ -277,6 +336,13 @@ class InputDispatcher {
         controller.dispatch(intent);
         onCommand?.call(intent, event);
       case DeleteSelectionIntent():
+        onCommand?.call(intent, event);
+      case BeginResizeIntent() || UpdateResizeIntent() || CancelResizeIntent():
+        controller.dispatch(intent);
+      case CommitResizeIntent():
+        controller.dispatch(intent);
+        onCommand?.call(intent, event);
+      case AlignSelectionIntent() || DistributeSelectionIntent():
         onCommand?.call(intent, event);
       default:
         onCommand?.call(intent, event);

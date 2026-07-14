@@ -48,6 +48,8 @@ class _DocumentEditorScreenState extends State<DocumentEditorScreen> {
       WorkspaceInteractionController();
   final BlockGeometryRegistry _geometryRegistry = BlockGeometryRegistry();
   final ScrollController _scrollController = ScrollController();
+  final WorkspaceViewportController _viewportController =
+      WorkspaceViewportController();
   InputDispatcher? _inputDispatcher;
   InteractionOverlayController? _overlayController;
   final InteractionDebugTimeline _interactionTimeline =
@@ -98,6 +100,10 @@ class _DocumentEditorScreenState extends State<DocumentEditorScreen> {
         workspace: workspace,
         onChanged: _workspaceChanged,
       );
+      _viewportController.attach(
+        workspaceId: workspace.id,
+        pageId: _session!.page.id,
+      );
       _session!.addListener(_invalidateUnmountedSelection);
       _inputDispatcher = InputDispatcher(
         workspaceId: workspace.id,
@@ -114,7 +120,9 @@ class _DocumentEditorScreenState extends State<DocumentEditorScreen> {
                     isLocked: block.isLocked,
                   );
           },
-          visualOrder: () => _session?.blocks.map((block) => block.id).toList() ?? const [],
+          visualOrder: () =>
+              _session?.blocks.map((block) => block.id).toList() ?? const [],
+          blockBounds: _blockTransformBounds,
         ),
         isModalActive: () =>
             _interaction.context.interactionMode == InteractionMode.contextMenu,
@@ -231,6 +239,13 @@ class _DocumentEditorScreenState extends State<DocumentEditorScreen> {
     );
   }
 
+  SpatialRect? _blockTransformBounds(String blockId) {
+    final entry = _geometryRegistry.geometryFor(blockId);
+    return entry == null
+        ? null
+        : WorkspaceOverlayGeometry.transformBounds(entry);
+  }
+
   void _handleInteractionCommand(
     InteractionIntent intent,
     NormalizedInputEvent event,
@@ -255,6 +270,50 @@ class _DocumentEditorScreenState extends State<DocumentEditorScreen> {
         _interaction.dispatch(const ClearSelectionIntent());
       }
     }
+    if (intent case CommitResizeIntent(:final blockId, :final bounds)) {
+      _session?.resizeBlock(blockId, bounds);
+    }
+    if (intent case AlignSelectionIntent(:final alignment)) {
+      _alignSelection(alignment);
+    }
+    if (intent is DistributeSelectionIntent) {
+      _distributeSelection();
+    }
+  }
+
+  List<String> get _selectedBlockIds =>
+      switch (_interaction.context.currentSelection) {
+        MultiBlockSelection(:final group) => group.blockIds,
+        BlockSelection(:final blockId) => [blockId],
+        _ => const <String>[],
+      };
+
+  Map<String, SpatialRect> _selectedWorkspaceBounds() {
+    final resolver = GeometryResolver(_geometryRegistry);
+    return {
+      for (final id in _selectedBlockIds)
+        if (_geometryRegistry.geometryFor(id) case final entry?)
+          id: resolver.resolveRect(
+            entry.globalBounds,
+            from: GeometryCoordinateSpace.screen,
+            to: GeometryCoordinateSpace.workspace,
+          ),
+    };
+  }
+
+  void _alignSelection(BlockAlignmentAxis alignment) {
+    _session?.alignBlocks(
+      _selectedBlockIds,
+      _selectedWorkspaceBounds(),
+      alignment,
+    );
+  }
+
+  void _distributeSelection() {
+    _session?.distributeBlocksVertically(
+      _selectedBlockIds,
+      _selectedWorkspaceBounds(),
+    );
   }
 
   void _scheduleSave() {
@@ -355,6 +414,17 @@ class _DocumentEditorScreenState extends State<DocumentEditorScreen> {
         actions: [
           if (_session != null) _insertMenu(),
           if (_session != null) _historyActions(_session!),
+          AnimatedBuilder(
+            animation: _viewportController,
+            builder: (_, _) => IconButton(
+              tooltip: 'Restablecer zoom',
+              onPressed: _viewportController.reset,
+              icon: Text(
+                '${(_viewportController.camera.zoom * 100).round()}%',
+                style: Theme.of(context).textTheme.labelMedium,
+              ),
+            ),
+          ),
           _categoryMenu(),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 12),
@@ -385,6 +455,13 @@ class _DocumentEditorScreenState extends State<DocumentEditorScreen> {
       keyboardInset: MediaQuery.viewInsetsOf(context).bottom,
       inputDispatcher: _inputDispatcher,
       overlayController: _overlayController,
+      viewportController: _viewportController,
+      isBlockResizable: (blockId) {
+        final block = session.blockById(blockId);
+        return block != null &&
+            !block.isLocked &&
+            block.supports(BlockCapability.resizable);
+      },
       lockedBlockIds: {
         for (final block in session.blocks)
           if (block.isLocked) block.id,
@@ -457,6 +534,8 @@ class _DocumentEditorScreenState extends State<DocumentEditorScreen> {
       onReplaceAttachment: _replaceAttachment,
       onOpenAttachment: _openAttachment,
       onEditAttachmentDetails: _editAttachmentDetails,
+      onAlignSelection: _alignSelection,
+      onDistributeSelection: _distributeSelection,
     );
   }
 
@@ -975,6 +1054,7 @@ class _DocumentEditorScreenState extends State<DocumentEditorScreen> {
     _overlayController?.dispose();
     _geometryRegistry.dispose();
     _scrollController.dispose();
+    _viewportController.dispose();
     _saveStatus.dispose();
     super.dispose();
   }

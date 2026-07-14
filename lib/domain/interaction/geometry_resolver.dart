@@ -26,13 +26,23 @@ class GeometryResolver {
     required GeometryCoordinateSpace to,
     Uuid? blockId,
   }) {
-    final topLeft = resolvePoint(
+    final first = resolvePoint(
       rect.topLeft,
       from: from,
       to: to,
       blockId: blockId,
     );
-    return SpatialRect.fromLTWH(topLeft.x, topLeft.y, rect.width, rect.height);
+    final second = resolvePoint(
+      SpatialPoint(rect.right, rect.bottom),
+      from: from,
+      to: to,
+      blockId: blockId,
+    );
+    final left = first.x < second.x ? first.x : second.x;
+    final top = first.y < second.y ? first.y : second.y;
+    final right = first.x > second.x ? first.x : second.x;
+    final bottom = first.y > second.y ? first.y : second.y;
+    return SpatialRect.fromLTRB(left, top, right, bottom);
   }
 
   SpatialPoint _toWorkspace(
@@ -49,7 +59,8 @@ class GeometryResolver {
         final screen = point + block.globalBounds.topLeft;
         return _screenToWorkspace(screen, viewport);
       case GeometryCoordinateSpace.viewport:
-        return point + (viewport?.scrollOffset ?? const SpatialPoint(0, 0));
+        return (viewport?.camera.viewportToWorkspace(point) ?? point) +
+            (viewport?.scrollOffset ?? const SpatialPoint(0, 0));
       case GeometryCoordinateSpace.screen:
         return _screenToWorkspace(point, viewport);
     }
@@ -65,10 +76,14 @@ class GeometryResolver {
       case GeometryCoordinateSpace.workspace:
         return point;
       case GeometryCoordinateSpace.viewport:
-        return point - (viewport?.scrollOffset ?? const SpatialPoint(0, 0));
-      case GeometryCoordinateSpace.screen:
-        final viewportPoint =
+        final logical =
             point - (viewport?.scrollOffset ?? const SpatialPoint(0, 0));
+        return viewport?.camera.workspaceToViewport(logical) ?? logical;
+      case GeometryCoordinateSpace.screen:
+        final logical =
+            point - (viewport?.scrollOffset ?? const SpatialPoint(0, 0));
+        final viewportPoint =
+            viewport?.camera.workspaceToViewport(logical) ?? logical;
         return viewportPoint +
             (viewport?.globalBounds.topLeft ?? const SpatialPoint(0, 0));
       case GeometryCoordinateSpace.blockLocal:
@@ -85,10 +100,12 @@ class GeometryResolver {
   SpatialPoint _screenToWorkspace(
     SpatialPoint point,
     WorkspaceViewportGeometry? viewport,
-  ) =>
-      point -
-      (viewport?.globalBounds.topLeft ?? const SpatialPoint(0, 0)) +
-      (viewport?.scrollOffset ?? const SpatialPoint(0, 0));
+  ) {
+    if (viewport == null) return point;
+    final viewportPoint = point - viewport.globalBounds.topLeft;
+    return viewport.camera.viewportToWorkspace(viewportPoint) +
+        viewport.scrollOffset;
+  }
 
   BlockGeometryEntry _requireBlock(Uuid? blockId) {
     final block = blockId == null ? null : registry.geometryFor(blockId);

@@ -2,6 +2,7 @@ import 'package:allministrator/domain/blocks/blocks.dart';
 import 'package:allministrator/domain/editing/workspace_editor_session.dart';
 import 'package:allministrator/domain/entities/workspace.dart';
 import 'package:allministrator/domain/entities/workspace_page.dart';
+import 'package:allministrator/domain/interaction/interaction.dart';
 import 'package:allministrator/domain/value_objects/structured_document.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -192,7 +193,11 @@ void main() {
 
   test('multiple move and delete are atomic and undoable', () {
     final session = _session(
-      TextBlock(id: 'a', orderKey: 0, paragraphs: const [BlockParagraph(id: 'pa', text: 'A')]),
+      TextBlock(
+        id: 'a',
+        orderKey: 0,
+        paragraphs: const [BlockParagraph(id: 'pa', text: 'A')],
+      ),
       extraBlocks: [
         DividerBlock(id: 'b', orderKey: 1),
         DividerBlock(id: 'c', orderKey: 2),
@@ -208,6 +213,41 @@ void main() {
     expect(session.blocks.map((block) => block.id), ['a', 'c']);
     session.undo();
     expect(session.blocks.map((block) => block.id), ['a', 'c', 'b', 'd']);
+  });
+
+  test('resize, align and distribute are atomic and undoable', () {
+    final session = _session(
+      ImageBlock(id: 'a', orderKey: 0, attachmentId: 'a'),
+      extraBlocks: [
+        ImageBlock(id: 'b', orderKey: 1, attachmentId: 'b'),
+        ImageBlock(id: 'c', orderKey: 2, attachmentId: 'c'),
+      ],
+    );
+    session.resizeBlock('a', const SpatialRect.fromLTWH(0, 0, 240, 160));
+    expect(session.blockById('a')!.geometry.width, 240);
+    session.undo();
+    expect(session.blockById('a')!.geometry.width, isNull);
+    session.redo();
+    expect(session.blockById('a')!.geometry.height, 160);
+
+    const bounds = {
+      'a': SpatialRect.fromLTWH(0, 0, 100, 40),
+      'b': SpatialRect.fromLTWH(100, 80, 100, 40),
+      'c': SpatialRect.fromLTWH(200, 220, 100, 40),
+    };
+    session.alignBlocks(const ['a', 'b', 'c'], bounds, BlockAlignmentAxis.left);
+    expect(session.blockById('b')!.geometry.x, -100);
+    expect(
+      (session.blockById('b')! as ImageBlock).alignment,
+      BlockAlignment.left,
+    );
+    session.undo();
+    expect(session.blockById('b')!.geometry.x, 0);
+
+    session.distributeBlocksVertically(const ['a', 'b', 'c'], bounds);
+    expect(session.blockById('b')!.geometry.y, 30);
+    session.undo();
+    expect(session.blockById('b')!.geometry.y, 0);
   });
 }
 

@@ -2,6 +2,7 @@ import 'package:allministrator/core/shared/identifiers.dart';
 import 'package:allministrator/domain/interaction/interaction_region.dart';
 import 'package:allministrator/domain/interaction/spatial_geometry.dart';
 import 'package:allministrator/domain/interaction/workspace_hit_target.dart';
+import 'package:allministrator/domain/interaction/viewport_engine.dart';
 import 'package:flutter/foundation.dart';
 
 class BlockGeometryEntry {
@@ -67,12 +68,14 @@ class WorkspaceViewportGeometry {
   const WorkspaceViewportGeometry({
     required this.globalBounds,
     this.scrollOffset = const SpatialPoint(0, 0),
+    this.camera = const WorkspaceCamera(),
     this.keyboardInset = 0,
     this.visibleGlobalBottom,
   });
 
   final SpatialRect globalBounds;
   final SpatialPoint scrollOffset;
+  final WorkspaceCamera camera;
   final double keyboardInset;
   final double? visibleGlobalBottom;
 
@@ -107,42 +110,79 @@ class BlockGeometryRegistry extends ChangeNotifier {
   void updateViewport(WorkspaceViewportGeometry viewport) {
     if (_viewport?.globalBounds == viewport.globalBounds &&
         _viewport?.scrollOffset == viewport.scrollOffset &&
+        _viewport?.camera == viewport.camera &&
         _viewport?.keyboardInset == viewport.keyboardInset &&
         _viewport?.visibleGlobalBottom == viewport.visibleGlobalBottom) {
       return;
     }
     final previousViewport = _viewport;
     _viewport = viewport;
-    final dx = previousViewport == null
-        ? 0.0
-        : viewport.globalBounds.left -
-              previousViewport.globalBounds.left -
-              (viewport.scrollOffset.x - previousViewport.scrollOffset.x);
-    final dy = previousViewport == null
-        ? 0.0
-        : viewport.globalBounds.top -
-              previousViewport.globalBounds.top -
-              (viewport.scrollOffset.y - previousViewport.scrollOffset.y);
     final now = DateTime.now().toUtc();
     for (final entry in _entries.values.toList()) {
-      final globalBounds = entry.globalBounds.translate(dx, dy);
+      final globalBounds = previousViewport == null
+          ? entry.globalBounds
+          : _transformRect(entry.globalBounds, previousViewport, viewport);
       final visible = globalBounds.intersect(viewport.visibleBounds);
       _entries[entry.blockId] = entry.copyWith(
         globalBounds: globalBounds,
         visibleBounds: visible,
         isVisible: !visible.isEmpty,
         lastUpdated: now,
-        handleAnchor: entry.handleAnchor + SpatialPoint(dx, dy),
-        toolbarAnchor: entry.toolbarAnchor + SpatialPoint(dx, dy),
+        handleAnchor: previousViewport == null
+            ? entry.handleAnchor
+            : _transformPoint(entry.handleAnchor, previousViewport, viewport),
+        toolbarAnchor: previousViewport == null
+            ? entry.toolbarAnchor
+            : _transformPoint(entry.toolbarAnchor, previousViewport, viewport),
         regions: {
           for (final region in entry.regions.values)
             region.id: region.copyWith(
-              globalBounds: region.globalBounds.translate(dx, dy),
+              globalBounds: previousViewport == null
+                  ? region.globalBounds
+                  : _transformRect(
+                      region.globalBounds,
+                      previousViewport,
+                      viewport,
+                    ),
             ),
         },
       );
     }
     notifyListeners();
+  }
+
+  SpatialPoint _transformPoint(
+    SpatialPoint screenPoint,
+    WorkspaceViewportGeometry previous,
+    WorkspaceViewportGeometry next,
+  ) {
+    final previousViewportPoint = screenPoint - previous.globalBounds.topLeft;
+    final workspacePoint =
+        previous.camera.viewportToWorkspace(previousViewportPoint) +
+        previous.scrollOffset;
+    final nextViewportPoint = next.camera.workspaceToViewport(
+      workspacePoint - next.scrollOffset,
+    );
+    return nextViewportPoint + next.globalBounds.topLeft;
+  }
+
+  SpatialRect _transformRect(
+    SpatialRect screenRect,
+    WorkspaceViewportGeometry previous,
+    WorkspaceViewportGeometry next,
+  ) {
+    final topLeft = _transformPoint(screenRect.topLeft, previous, next);
+    final bottomRight = _transformPoint(
+      SpatialPoint(screenRect.right, screenRect.bottom),
+      previous,
+      next,
+    );
+    return SpatialRect.fromLTRB(
+      topLeft.x,
+      topLeft.y,
+      bottomRight.x,
+      bottomRight.y,
+    );
   }
 
   void register({

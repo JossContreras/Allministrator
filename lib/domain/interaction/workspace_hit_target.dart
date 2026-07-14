@@ -1,4 +1,5 @@
 import 'package:allministrator/core/shared/identifiers.dart';
+import 'package:allministrator/domain/interaction/transformation_engine.dart';
 
 enum WorkspaceHitTargetKind {
   emptyArea,
@@ -84,8 +85,10 @@ class CustomRegionHitTarget extends WorkspaceHitTarget {
 }
 
 class ResizeHandleHitTarget extends WorkspaceHitTarget {
-  const ResizeHandleHitTarget(Uuid blockId)
+  const ResizeHandleHitTarget(Uuid blockId, {required this.handle})
     : super(WorkspaceHitTargetKind.resizeHandle, blockId: blockId);
+
+  final ResizeHandle handle;
 }
 
 class RotateHandleHitTarget extends WorkspaceHitTarget {
@@ -116,6 +119,7 @@ bool equivalentHitTargets(WorkspaceHitTarget first, WorkspaceHitTarget second) {
     (AttachmentActionHitTarget a, AttachmentActionHitTarget b) =>
       a.actionId == b.actionId,
     (CustomRegionHitTarget a, CustomRegionHitTarget b) => a.name == b.name,
+    (ResizeHandleHitTarget a, ResizeHandleHitTarget b) => a.handle == b.handle,
     _ => first.runtimeType == second.runtimeType,
   };
 }
