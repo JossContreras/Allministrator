@@ -16,14 +16,21 @@ class Attachment implements SyncableEntity {
     required this.updatedAt,
     required this.version,
     this.documentNodeId,
+    this.documentId,
+    this.localPath,
+    this.displayName,
+    this.extension,
+    this.checksum,
     this.deletedAt,
   });
   @override
   final Uuid id;
   final Uuid noteId;
+  final Uuid? documentId;
   final String? documentNodeId;
   final AttachmentType type;
   final String storageKey;
+  final String? localPath, displayName, extension, checksum;
   final String fileName;
   final String mimeType;
   final int byteSize;

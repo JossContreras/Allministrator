@@ -3116,6 +3116,17 @@ class $AttachmentsTable extends Attachments
       'REFERENCES notes (id)',
     ),
   );
+  static const VerificationMeta _documentIdMeta = const VerificationMeta(
+    'documentId',
+  );
+  @override
+  late final GeneratedColumn<String> documentId = GeneratedColumn<String>(
+    'document_id',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
   static const VerificationMeta _documentNodeIdMeta = const VerificationMeta(
     'documentNodeId',
   );
@@ -3147,6 +3158,17 @@ class $AttachmentsTable extends Attachments
     type: DriftSqlType.string,
     requiredDuringInsert: true,
   );
+  static const VerificationMeta _localPathMeta = const VerificationMeta(
+    'localPath',
+  );
+  @override
+  late final GeneratedColumn<String> localPath = GeneratedColumn<String>(
+    'local_path',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
   static const VerificationMeta _fileNameMeta = const VerificationMeta(
     'fileName',
   );
@@ -3157,6 +3179,28 @@ class $AttachmentsTable extends Attachments
     false,
     type: DriftSqlType.string,
     requiredDuringInsert: true,
+  );
+  static const VerificationMeta _displayNameMeta = const VerificationMeta(
+    'displayName',
+  );
+  @override
+  late final GeneratedColumn<String> displayName = GeneratedColumn<String>(
+    'display_name',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _extensionMeta = const VerificationMeta(
+    'extension',
+  );
+  @override
+  late final GeneratedColumn<String> extension = GeneratedColumn<String>(
+    'extension',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
   );
   static const VerificationMeta _mimeTypeMeta = const VerificationMeta(
     'mimeType',
@@ -3179,6 +3223,17 @@ class $AttachmentsTable extends Attachments
     false,
     type: DriftSqlType.int,
     requiredDuringInsert: true,
+  );
+  static const VerificationMeta _checksumMeta = const VerificationMeta(
+    'checksum',
+  );
+  @override
+  late final GeneratedColumn<String> checksum = GeneratedColumn<String>(
+    'checksum',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
   );
   static const VerificationMeta _createdAtMeta = const VerificationMeta(
     'createdAt',
@@ -3229,12 +3284,17 @@ class $AttachmentsTable extends Attachments
   List<GeneratedColumn> get $columns => [
     id,
     noteId,
+    documentId,
     documentNodeId,
     type,
     storageKey,
+    localPath,
     fileName,
+    displayName,
+    extension,
     mimeType,
     byteSize,
+    checksum,
     createdAt,
     updatedAt,
     deletedAt,
@@ -3265,6 +3325,12 @@ class $AttachmentsTable extends Attachments
     } else if (isInserting) {
       context.missing(_noteIdMeta);
     }
+    if (data.containsKey('document_id')) {
+      context.handle(
+        _documentIdMeta,
+        documentId.isAcceptableOrUnknown(data['document_id']!, _documentIdMeta),
+      );
+    }
     if (data.containsKey('document_node_id')) {
       context.handle(
         _documentNodeIdMeta,
@@ -3290,6 +3356,12 @@ class $AttachmentsTable extends Attachments
     } else if (isInserting) {
       context.missing(_storageKeyMeta);
     }
+    if (data.containsKey('local_path')) {
+      context.handle(
+        _localPathMeta,
+        localPath.isAcceptableOrUnknown(data['local_path']!, _localPathMeta),
+      );
+    }
     if (data.containsKey('file_name')) {
       context.handle(
         _fileNameMeta,
@@ -3297,6 +3369,21 @@ class $AttachmentsTable extends Attachments
       );
     } else if (isInserting) {
       context.missing(_fileNameMeta);
+    }
+    if (data.containsKey('display_name')) {
+      context.handle(
+        _displayNameMeta,
+        displayName.isAcceptableOrUnknown(
+          data['display_name']!,
+          _displayNameMeta,
+        ),
+      );
+    }
+    if (data.containsKey('extension')) {
+      context.handle(
+        _extensionMeta,
+        extension.isAcceptableOrUnknown(data['extension']!, _extensionMeta),
+      );
     }
     if (data.containsKey('mime_type')) {
       context.handle(
@@ -3313,6 +3400,12 @@ class $AttachmentsTable extends Attachments
       );
     } else if (isInserting) {
       context.missing(_byteSizeMeta);
+    }
+    if (data.containsKey('checksum')) {
+      context.handle(
+        _checksumMeta,
+        checksum.isAcceptableOrUnknown(data['checksum']!, _checksumMeta),
+      );
     }
     if (data.containsKey('created_at')) {
       context.handle(
@@ -3359,6 +3452,10 @@ class $AttachmentsTable extends Attachments
         DriftSqlType.string,
         data['${effectivePrefix}note_id'],
       )!,
+      documentId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}document_id'],
+      ),
       documentNodeId: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
         data['${effectivePrefix}document_node_id'],
@@ -3371,10 +3468,22 @@ class $AttachmentsTable extends Attachments
         DriftSqlType.string,
         data['${effectivePrefix}storage_key'],
       )!,
+      localPath: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}local_path'],
+      ),
       fileName: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
         data['${effectivePrefix}file_name'],
       )!,
+      displayName: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}display_name'],
+      ),
+      extension: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}extension'],
+      ),
       mimeType: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
         data['${effectivePrefix}mime_type'],
@@ -3383,6 +3492,10 @@ class $AttachmentsTable extends Attachments
         DriftSqlType.int,
         data['${effectivePrefix}byte_size'],
       )!,
+      checksum: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}checksum'],
+      ),
       createdAt: attachedDatabase.typeMapping.read(
         DriftSqlType.dateTime,
         data['${effectivePrefix}created_at'],
@@ -3411,12 +3524,17 @@ class $AttachmentsTable extends Attachments
 class Attachment extends DataClass implements Insertable<Attachment> {
   final String id;
   final String noteId;
+  final String? documentId;
   final String? documentNodeId;
   final String type;
   final String storageKey;
+  final String? localPath;
   final String fileName;
+  final String? displayName;
+  final String? extension;
   final String mimeType;
   final int byteSize;
+  final String? checksum;
   final DateTime createdAt;
   final DateTime updatedAt;
   final DateTime? deletedAt;
@@ -3424,12 +3542,17 @@ class Attachment extends DataClass implements Insertable<Attachment> {
   const Attachment({
     required this.id,
     required this.noteId,
+    this.documentId,
     this.documentNodeId,
     required this.type,
     required this.storageKey,
+    this.localPath,
     required this.fileName,
+    this.displayName,
+    this.extension,
     required this.mimeType,
     required this.byteSize,
+    this.checksum,
     required this.createdAt,
     required this.updatedAt,
     this.deletedAt,
@@ -3440,14 +3563,29 @@ class Attachment extends DataClass implements Insertable<Attachment> {
     final map = <String, Expression>{};
     map['id'] = Variable<String>(id);
     map['note_id'] = Variable<String>(noteId);
+    if (!nullToAbsent || documentId != null) {
+      map['document_id'] = Variable<String>(documentId);
+    }
     if (!nullToAbsent || documentNodeId != null) {
       map['document_node_id'] = Variable<String>(documentNodeId);
     }
     map['type'] = Variable<String>(type);
     map['storage_key'] = Variable<String>(storageKey);
+    if (!nullToAbsent || localPath != null) {
+      map['local_path'] = Variable<String>(localPath);
+    }
     map['file_name'] = Variable<String>(fileName);
+    if (!nullToAbsent || displayName != null) {
+      map['display_name'] = Variable<String>(displayName);
+    }
+    if (!nullToAbsent || extension != null) {
+      map['extension'] = Variable<String>(extension);
+    }
     map['mime_type'] = Variable<String>(mimeType);
     map['byte_size'] = Variable<int>(byteSize);
+    if (!nullToAbsent || checksum != null) {
+      map['checksum'] = Variable<String>(checksum);
+    }
     map['created_at'] = Variable<DateTime>(createdAt);
     map['updated_at'] = Variable<DateTime>(updatedAt);
     if (!nullToAbsent || deletedAt != null) {
@@ -3461,14 +3599,29 @@ class Attachment extends DataClass implements Insertable<Attachment> {
     return AttachmentsCompanion(
       id: Value(id),
       noteId: Value(noteId),
+      documentId: documentId == null && nullToAbsent
+          ? const Value.absent()
+          : Value(documentId),
       documentNodeId: documentNodeId == null && nullToAbsent
           ? const Value.absent()
           : Value(documentNodeId),
       type: Value(type),
       storageKey: Value(storageKey),
+      localPath: localPath == null && nullToAbsent
+          ? const Value.absent()
+          : Value(localPath),
       fileName: Value(fileName),
+      displayName: displayName == null && nullToAbsent
+          ? const Value.absent()
+          : Value(displayName),
+      extension: extension == null && nullToAbsent
+          ? const Value.absent()
+          : Value(extension),
       mimeType: Value(mimeType),
       byteSize: Value(byteSize),
+      checksum: checksum == null && nullToAbsent
+          ? const Value.absent()
+          : Value(checksum),
       createdAt: Value(createdAt),
       updatedAt: Value(updatedAt),
       deletedAt: deletedAt == null && nullToAbsent
@@ -3486,12 +3639,17 @@ class Attachment extends DataClass implements Insertable<Attachment> {
     return Attachment(
       id: serializer.fromJson<String>(json['id']),
       noteId: serializer.fromJson<String>(json['noteId']),
+      documentId: serializer.fromJson<String?>(json['documentId']),
       documentNodeId: serializer.fromJson<String?>(json['documentNodeId']),
       type: serializer.fromJson<String>(json['type']),
       storageKey: serializer.fromJson<String>(json['storageKey']),
+      localPath: serializer.fromJson<String?>(json['localPath']),
       fileName: serializer.fromJson<String>(json['fileName']),
+      displayName: serializer.fromJson<String?>(json['displayName']),
+      extension: serializer.fromJson<String?>(json['extension']),
       mimeType: serializer.fromJson<String>(json['mimeType']),
       byteSize: serializer.fromJson<int>(json['byteSize']),
+      checksum: serializer.fromJson<String?>(json['checksum']),
       createdAt: serializer.fromJson<DateTime>(json['createdAt']),
       updatedAt: serializer.fromJson<DateTime>(json['updatedAt']),
       deletedAt: serializer.fromJson<DateTime?>(json['deletedAt']),
@@ -3504,12 +3662,17 @@ class Attachment extends DataClass implements Insertable<Attachment> {
     return <String, dynamic>{
       'id': serializer.toJson<String>(id),
       'noteId': serializer.toJson<String>(noteId),
+      'documentId': serializer.toJson<String?>(documentId),
       'documentNodeId': serializer.toJson<String?>(documentNodeId),
       'type': serializer.toJson<String>(type),
       'storageKey': serializer.toJson<String>(storageKey),
+      'localPath': serializer.toJson<String?>(localPath),
       'fileName': serializer.toJson<String>(fileName),
+      'displayName': serializer.toJson<String?>(displayName),
+      'extension': serializer.toJson<String?>(extension),
       'mimeType': serializer.toJson<String>(mimeType),
       'byteSize': serializer.toJson<int>(byteSize),
+      'checksum': serializer.toJson<String?>(checksum),
       'createdAt': serializer.toJson<DateTime>(createdAt),
       'updatedAt': serializer.toJson<DateTime>(updatedAt),
       'deletedAt': serializer.toJson<DateTime?>(deletedAt),
@@ -3520,12 +3683,17 @@ class Attachment extends DataClass implements Insertable<Attachment> {
   Attachment copyWith({
     String? id,
     String? noteId,
+    Value<String?> documentId = const Value.absent(),
     Value<String?> documentNodeId = const Value.absent(),
     String? type,
     String? storageKey,
+    Value<String?> localPath = const Value.absent(),
     String? fileName,
+    Value<String?> displayName = const Value.absent(),
+    Value<String?> extension = const Value.absent(),
     String? mimeType,
     int? byteSize,
+    Value<String?> checksum = const Value.absent(),
     DateTime? createdAt,
     DateTime? updatedAt,
     Value<DateTime?> deletedAt = const Value.absent(),
@@ -3533,14 +3701,19 @@ class Attachment extends DataClass implements Insertable<Attachment> {
   }) => Attachment(
     id: id ?? this.id,
     noteId: noteId ?? this.noteId,
+    documentId: documentId.present ? documentId.value : this.documentId,
     documentNodeId: documentNodeId.present
         ? documentNodeId.value
         : this.documentNodeId,
     type: type ?? this.type,
     storageKey: storageKey ?? this.storageKey,
+    localPath: localPath.present ? localPath.value : this.localPath,
     fileName: fileName ?? this.fileName,
+    displayName: displayName.present ? displayName.value : this.displayName,
+    extension: extension.present ? extension.value : this.extension,
     mimeType: mimeType ?? this.mimeType,
     byteSize: byteSize ?? this.byteSize,
+    checksum: checksum.present ? checksum.value : this.checksum,
     createdAt: createdAt ?? this.createdAt,
     updatedAt: updatedAt ?? this.updatedAt,
     deletedAt: deletedAt.present ? deletedAt.value : this.deletedAt,
@@ -3550,6 +3723,9 @@ class Attachment extends DataClass implements Insertable<Attachment> {
     return Attachment(
       id: data.id.present ? data.id.value : this.id,
       noteId: data.noteId.present ? data.noteId.value : this.noteId,
+      documentId: data.documentId.present
+          ? data.documentId.value
+          : this.documentId,
       documentNodeId: data.documentNodeId.present
           ? data.documentNodeId.value
           : this.documentNodeId,
@@ -3557,9 +3733,15 @@ class Attachment extends DataClass implements Insertable<Attachment> {
       storageKey: data.storageKey.present
           ? data.storageKey.value
           : this.storageKey,
+      localPath: data.localPath.present ? data.localPath.value : this.localPath,
       fileName: data.fileName.present ? data.fileName.value : this.fileName,
+      displayName: data.displayName.present
+          ? data.displayName.value
+          : this.displayName,
+      extension: data.extension.present ? data.extension.value : this.extension,
       mimeType: data.mimeType.present ? data.mimeType.value : this.mimeType,
       byteSize: data.byteSize.present ? data.byteSize.value : this.byteSize,
+      checksum: data.checksum.present ? data.checksum.value : this.checksum,
       createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
       updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
       deletedAt: data.deletedAt.present ? data.deletedAt.value : this.deletedAt,
@@ -3572,12 +3754,17 @@ class Attachment extends DataClass implements Insertable<Attachment> {
     return (StringBuffer('Attachment(')
           ..write('id: $id, ')
           ..write('noteId: $noteId, ')
+          ..write('documentId: $documentId, ')
           ..write('documentNodeId: $documentNodeId, ')
           ..write('type: $type, ')
           ..write('storageKey: $storageKey, ')
+          ..write('localPath: $localPath, ')
           ..write('fileName: $fileName, ')
+          ..write('displayName: $displayName, ')
+          ..write('extension: $extension, ')
           ..write('mimeType: $mimeType, ')
           ..write('byteSize: $byteSize, ')
+          ..write('checksum: $checksum, ')
           ..write('createdAt: $createdAt, ')
           ..write('updatedAt: $updatedAt, ')
           ..write('deletedAt: $deletedAt, ')
@@ -3590,12 +3777,17 @@ class Attachment extends DataClass implements Insertable<Attachment> {
   int get hashCode => Object.hash(
     id,
     noteId,
+    documentId,
     documentNodeId,
     type,
     storageKey,
+    localPath,
     fileName,
+    displayName,
+    extension,
     mimeType,
     byteSize,
+    checksum,
     createdAt,
     updatedAt,
     deletedAt,
@@ -3607,12 +3799,17 @@ class Attachment extends DataClass implements Insertable<Attachment> {
       (other is Attachment &&
           other.id == this.id &&
           other.noteId == this.noteId &&
+          other.documentId == this.documentId &&
           other.documentNodeId == this.documentNodeId &&
           other.type == this.type &&
           other.storageKey == this.storageKey &&
+          other.localPath == this.localPath &&
           other.fileName == this.fileName &&
+          other.displayName == this.displayName &&
+          other.extension == this.extension &&
           other.mimeType == this.mimeType &&
           other.byteSize == this.byteSize &&
+          other.checksum == this.checksum &&
           other.createdAt == this.createdAt &&
           other.updatedAt == this.updatedAt &&
           other.deletedAt == this.deletedAt &&
@@ -3622,12 +3819,17 @@ class Attachment extends DataClass implements Insertable<Attachment> {
 class AttachmentsCompanion extends UpdateCompanion<Attachment> {
   final Value<String> id;
   final Value<String> noteId;
+  final Value<String?> documentId;
   final Value<String?> documentNodeId;
   final Value<String> type;
   final Value<String> storageKey;
+  final Value<String?> localPath;
   final Value<String> fileName;
+  final Value<String?> displayName;
+  final Value<String?> extension;
   final Value<String> mimeType;
   final Value<int> byteSize;
+  final Value<String?> checksum;
   final Value<DateTime> createdAt;
   final Value<DateTime> updatedAt;
   final Value<DateTime?> deletedAt;
@@ -3636,12 +3838,17 @@ class AttachmentsCompanion extends UpdateCompanion<Attachment> {
   const AttachmentsCompanion({
     this.id = const Value.absent(),
     this.noteId = const Value.absent(),
+    this.documentId = const Value.absent(),
     this.documentNodeId = const Value.absent(),
     this.type = const Value.absent(),
     this.storageKey = const Value.absent(),
+    this.localPath = const Value.absent(),
     this.fileName = const Value.absent(),
+    this.displayName = const Value.absent(),
+    this.extension = const Value.absent(),
     this.mimeType = const Value.absent(),
     this.byteSize = const Value.absent(),
+    this.checksum = const Value.absent(),
     this.createdAt = const Value.absent(),
     this.updatedAt = const Value.absent(),
     this.deletedAt = const Value.absent(),
@@ -3651,12 +3858,17 @@ class AttachmentsCompanion extends UpdateCompanion<Attachment> {
   AttachmentsCompanion.insert({
     required String id,
     required String noteId,
+    this.documentId = const Value.absent(),
     this.documentNodeId = const Value.absent(),
     required String type,
     required String storageKey,
+    this.localPath = const Value.absent(),
     required String fileName,
+    this.displayName = const Value.absent(),
+    this.extension = const Value.absent(),
     required String mimeType,
     required int byteSize,
+    this.checksum = const Value.absent(),
     required DateTime createdAt,
     required DateTime updatedAt,
     this.deletedAt = const Value.absent(),
@@ -3674,12 +3886,17 @@ class AttachmentsCompanion extends UpdateCompanion<Attachment> {
   static Insertable<Attachment> custom({
     Expression<String>? id,
     Expression<String>? noteId,
+    Expression<String>? documentId,
     Expression<String>? documentNodeId,
     Expression<String>? type,
     Expression<String>? storageKey,
+    Expression<String>? localPath,
     Expression<String>? fileName,
+    Expression<String>? displayName,
+    Expression<String>? extension,
     Expression<String>? mimeType,
     Expression<int>? byteSize,
+    Expression<String>? checksum,
     Expression<DateTime>? createdAt,
     Expression<DateTime>? updatedAt,
     Expression<DateTime>? deletedAt,
@@ -3689,12 +3906,17 @@ class AttachmentsCompanion extends UpdateCompanion<Attachment> {
     return RawValuesInsertable({
       if (id != null) 'id': id,
       if (noteId != null) 'note_id': noteId,
+      if (documentId != null) 'document_id': documentId,
       if (documentNodeId != null) 'document_node_id': documentNodeId,
       if (type != null) 'type': type,
       if (storageKey != null) 'storage_key': storageKey,
+      if (localPath != null) 'local_path': localPath,
       if (fileName != null) 'file_name': fileName,
+      if (displayName != null) 'display_name': displayName,
+      if (extension != null) 'extension': extension,
       if (mimeType != null) 'mime_type': mimeType,
       if (byteSize != null) 'byte_size': byteSize,
+      if (checksum != null) 'checksum': checksum,
       if (createdAt != null) 'created_at': createdAt,
       if (updatedAt != null) 'updated_at': updatedAt,
       if (deletedAt != null) 'deleted_at': deletedAt,
@@ -3706,12 +3928,17 @@ class AttachmentsCompanion extends UpdateCompanion<Attachment> {
   AttachmentsCompanion copyWith({
     Value<String>? id,
     Value<String>? noteId,
+    Value<String?>? documentId,
     Value<String?>? documentNodeId,
     Value<String>? type,
     Value<String>? storageKey,
+    Value<String?>? localPath,
     Value<String>? fileName,
+    Value<String?>? displayName,
+    Value<String?>? extension,
     Value<String>? mimeType,
     Value<int>? byteSize,
+    Value<String?>? checksum,
     Value<DateTime>? createdAt,
     Value<DateTime>? updatedAt,
     Value<DateTime?>? deletedAt,
@@ -3721,12 +3948,17 @@ class AttachmentsCompanion extends UpdateCompanion<Attachment> {
     return AttachmentsCompanion(
       id: id ?? this.id,
       noteId: noteId ?? this.noteId,
+      documentId: documentId ?? this.documentId,
       documentNodeId: documentNodeId ?? this.documentNodeId,
       type: type ?? this.type,
       storageKey: storageKey ?? this.storageKey,
+      localPath: localPath ?? this.localPath,
       fileName: fileName ?? this.fileName,
+      displayName: displayName ?? this.displayName,
+      extension: extension ?? this.extension,
       mimeType: mimeType ?? this.mimeType,
       byteSize: byteSize ?? this.byteSize,
+      checksum: checksum ?? this.checksum,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
       deletedAt: deletedAt ?? this.deletedAt,
@@ -3744,6 +3976,9 @@ class AttachmentsCompanion extends UpdateCompanion<Attachment> {
     if (noteId.present) {
       map['note_id'] = Variable<String>(noteId.value);
     }
+    if (documentId.present) {
+      map['document_id'] = Variable<String>(documentId.value);
+    }
     if (documentNodeId.present) {
       map['document_node_id'] = Variable<String>(documentNodeId.value);
     }
@@ -3753,14 +3988,26 @@ class AttachmentsCompanion extends UpdateCompanion<Attachment> {
     if (storageKey.present) {
       map['storage_key'] = Variable<String>(storageKey.value);
     }
+    if (localPath.present) {
+      map['local_path'] = Variable<String>(localPath.value);
+    }
     if (fileName.present) {
       map['file_name'] = Variable<String>(fileName.value);
+    }
+    if (displayName.present) {
+      map['display_name'] = Variable<String>(displayName.value);
+    }
+    if (extension.present) {
+      map['extension'] = Variable<String>(extension.value);
     }
     if (mimeType.present) {
       map['mime_type'] = Variable<String>(mimeType.value);
     }
     if (byteSize.present) {
       map['byte_size'] = Variable<int>(byteSize.value);
+    }
+    if (checksum.present) {
+      map['checksum'] = Variable<String>(checksum.value);
     }
     if (createdAt.present) {
       map['created_at'] = Variable<DateTime>(createdAt.value);
@@ -3785,12 +4032,17 @@ class AttachmentsCompanion extends UpdateCompanion<Attachment> {
     return (StringBuffer('AttachmentsCompanion(')
           ..write('id: $id, ')
           ..write('noteId: $noteId, ')
+          ..write('documentId: $documentId, ')
           ..write('documentNodeId: $documentNodeId, ')
           ..write('type: $type, ')
           ..write('storageKey: $storageKey, ')
+          ..write('localPath: $localPath, ')
           ..write('fileName: $fileName, ')
+          ..write('displayName: $displayName, ')
+          ..write('extension: $extension, ')
           ..write('mimeType: $mimeType, ')
           ..write('byteSize: $byteSize, ')
+          ..write('checksum: $checksum, ')
           ..write('createdAt: $createdAt, ')
           ..write('updatedAt: $updatedAt, ')
           ..write('deletedAt: $deletedAt, ')
@@ -6644,12 +6896,17 @@ typedef $$AttachmentsTableCreateCompanionBuilder =
     AttachmentsCompanion Function({
       required String id,
       required String noteId,
+      Value<String?> documentId,
       Value<String?> documentNodeId,
       required String type,
       required String storageKey,
+      Value<String?> localPath,
       required String fileName,
+      Value<String?> displayName,
+      Value<String?> extension,
       required String mimeType,
       required int byteSize,
+      Value<String?> checksum,
       required DateTime createdAt,
       required DateTime updatedAt,
       Value<DateTime?> deletedAt,
@@ -6660,12 +6917,17 @@ typedef $$AttachmentsTableUpdateCompanionBuilder =
     AttachmentsCompanion Function({
       Value<String> id,
       Value<String> noteId,
+      Value<String?> documentId,
       Value<String?> documentNodeId,
       Value<String> type,
       Value<String> storageKey,
+      Value<String?> localPath,
       Value<String> fileName,
+      Value<String?> displayName,
+      Value<String?> extension,
       Value<String> mimeType,
       Value<int> byteSize,
+      Value<String?> checksum,
       Value<DateTime> createdAt,
       Value<DateTime> updatedAt,
       Value<DateTime?> deletedAt,
@@ -6710,6 +6972,11 @@ class $$AttachmentsTableFilterComposer
     builder: (column) => ColumnFilters(column),
   );
 
+  ColumnFilters<String> get documentId => $composableBuilder(
+    column: $table.documentId,
+    builder: (column) => ColumnFilters(column),
+  );
+
   ColumnFilters<String> get documentNodeId => $composableBuilder(
     column: $table.documentNodeId,
     builder: (column) => ColumnFilters(column),
@@ -6725,8 +6992,23 @@ class $$AttachmentsTableFilterComposer
     builder: (column) => ColumnFilters(column),
   );
 
+  ColumnFilters<String> get localPath => $composableBuilder(
+    column: $table.localPath,
+    builder: (column) => ColumnFilters(column),
+  );
+
   ColumnFilters<String> get fileName => $composableBuilder(
     column: $table.fileName,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get displayName => $composableBuilder(
+    column: $table.displayName,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get extension => $composableBuilder(
+    column: $table.extension,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -6737,6 +7019,11 @@ class $$AttachmentsTableFilterComposer
 
   ColumnFilters<int> get byteSize => $composableBuilder(
     column: $table.byteSize,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get checksum => $composableBuilder(
+    column: $table.checksum,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -6798,6 +7085,11 @@ class $$AttachmentsTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<String> get documentId => $composableBuilder(
+    column: $table.documentId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<String> get documentNodeId => $composableBuilder(
     column: $table.documentNodeId,
     builder: (column) => ColumnOrderings(column),
@@ -6813,8 +7105,23 @@ class $$AttachmentsTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<String> get localPath => $composableBuilder(
+    column: $table.localPath,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<String> get fileName => $composableBuilder(
     column: $table.fileName,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get displayName => $composableBuilder(
+    column: $table.displayName,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get extension => $composableBuilder(
+    column: $table.extension,
     builder: (column) => ColumnOrderings(column),
   );
 
@@ -6825,6 +7132,11 @@ class $$AttachmentsTableOrderingComposer
 
   ColumnOrderings<int> get byteSize => $composableBuilder(
     column: $table.byteSize,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get checksum => $composableBuilder(
+    column: $table.checksum,
     builder: (column) => ColumnOrderings(column),
   );
 
@@ -6884,6 +7196,11 @@ class $$AttachmentsTableAnnotationComposer
   GeneratedColumn<String> get id =>
       $composableBuilder(column: $table.id, builder: (column) => column);
 
+  GeneratedColumn<String> get documentId => $composableBuilder(
+    column: $table.documentId,
+    builder: (column) => column,
+  );
+
   GeneratedColumn<String> get documentNodeId => $composableBuilder(
     column: $table.documentNodeId,
     builder: (column) => column,
@@ -6897,14 +7214,28 @@ class $$AttachmentsTableAnnotationComposer
     builder: (column) => column,
   );
 
+  GeneratedColumn<String> get localPath =>
+      $composableBuilder(column: $table.localPath, builder: (column) => column);
+
   GeneratedColumn<String> get fileName =>
       $composableBuilder(column: $table.fileName, builder: (column) => column);
+
+  GeneratedColumn<String> get displayName => $composableBuilder(
+    column: $table.displayName,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get extension =>
+      $composableBuilder(column: $table.extension, builder: (column) => column);
 
   GeneratedColumn<String> get mimeType =>
       $composableBuilder(column: $table.mimeType, builder: (column) => column);
 
   GeneratedColumn<int> get byteSize =>
       $composableBuilder(column: $table.byteSize, builder: (column) => column);
+
+  GeneratedColumn<String> get checksum =>
+      $composableBuilder(column: $table.checksum, builder: (column) => column);
 
   GeneratedColumn<DateTime> get createdAt =>
       $composableBuilder(column: $table.createdAt, builder: (column) => column);
@@ -6972,12 +7303,17 @@ class $$AttachmentsTableTableManager
               ({
                 Value<String> id = const Value.absent(),
                 Value<String> noteId = const Value.absent(),
+                Value<String?> documentId = const Value.absent(),
                 Value<String?> documentNodeId = const Value.absent(),
                 Value<String> type = const Value.absent(),
                 Value<String> storageKey = const Value.absent(),
+                Value<String?> localPath = const Value.absent(),
                 Value<String> fileName = const Value.absent(),
+                Value<String?> displayName = const Value.absent(),
+                Value<String?> extension = const Value.absent(),
                 Value<String> mimeType = const Value.absent(),
                 Value<int> byteSize = const Value.absent(),
+                Value<String?> checksum = const Value.absent(),
                 Value<DateTime> createdAt = const Value.absent(),
                 Value<DateTime> updatedAt = const Value.absent(),
                 Value<DateTime?> deletedAt = const Value.absent(),
@@ -6986,12 +7322,17 @@ class $$AttachmentsTableTableManager
               }) => AttachmentsCompanion(
                 id: id,
                 noteId: noteId,
+                documentId: documentId,
                 documentNodeId: documentNodeId,
                 type: type,
                 storageKey: storageKey,
+                localPath: localPath,
                 fileName: fileName,
+                displayName: displayName,
+                extension: extension,
                 mimeType: mimeType,
                 byteSize: byteSize,
+                checksum: checksum,
                 createdAt: createdAt,
                 updatedAt: updatedAt,
                 deletedAt: deletedAt,
@@ -7002,12 +7343,17 @@ class $$AttachmentsTableTableManager
               ({
                 required String id,
                 required String noteId,
+                Value<String?> documentId = const Value.absent(),
                 Value<String?> documentNodeId = const Value.absent(),
                 required String type,
                 required String storageKey,
+                Value<String?> localPath = const Value.absent(),
                 required String fileName,
+                Value<String?> displayName = const Value.absent(),
+                Value<String?> extension = const Value.absent(),
                 required String mimeType,
                 required int byteSize,
+                Value<String?> checksum = const Value.absent(),
                 required DateTime createdAt,
                 required DateTime updatedAt,
                 Value<DateTime?> deletedAt = const Value.absent(),
@@ -7016,12 +7362,17 @@ class $$AttachmentsTableTableManager
               }) => AttachmentsCompanion.insert(
                 id: id,
                 noteId: noteId,
+                documentId: documentId,
                 documentNodeId: documentNodeId,
                 type: type,
                 storageKey: storageKey,
+                localPath: localPath,
                 fileName: fileName,
+                displayName: displayName,
+                extension: extension,
                 mimeType: mimeType,
                 byteSize: byteSize,
+                checksum: checksum,
                 createdAt: createdAt,
                 updatedAt: updatedAt,
                 deletedAt: deletedAt,

@@ -12,6 +12,8 @@ class DocumentNodeRegistry {
         'quote': QuoteNode.fromJson,
         'callout': CalloutNode.fromJson,
         'codeBlock': CodeBlockNode.fromJson,
+        'table': TableNode.fromJson,
+        'attachment': AttachmentNode.fromJson,
         ...?deserializers,
       };
   final Map<String, NodeDeserializer> _deserializers;

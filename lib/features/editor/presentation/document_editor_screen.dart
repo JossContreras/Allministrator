@@ -16,6 +16,7 @@ import 'package:allministrator/domain/editing/formatting_controller.dart';
 import 'package:allministrator/features/editor/data/local_attachment_storage.dart';
 import 'package:allministrator/core/utils/uuid_generator.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:file_picker/file_picker.dart';
 
 class DocumentEditorScreen extends StatefulWidget {
   const DocumentEditorScreen({
@@ -406,6 +407,8 @@ class _DocumentEditorScreenState extends State<DocumentEditorScreen> {
               if (value == 'quote') _insertQuote();
               if (value == 'callout') _insertCallout();
               if (value == 'code') _insertCode();
+              if (value == 'table') _insertTable();
+              if (value == 'file') _insertFile();
             },
             itemBuilder: (_) => const [
               PopupMenuItem(
@@ -420,6 +423,20 @@ class _DocumentEditorScreenState extends State<DocumentEditorScreen> {
                 child: ListTile(
                   leading: Icon(Icons.horizontal_rule),
                   title: Text('Separador'),
+                ),
+              ),
+              PopupMenuItem(
+                value: 'table',
+                child: ListTile(
+                  leading: Icon(Icons.table_chart_outlined),
+                  title: Text('Tabla'),
+                ),
+              ),
+              PopupMenuItem(
+                value: 'file',
+                child: ListTile(
+                  leading: Icon(Icons.attach_file),
+                  title: Text('Archivo'),
                 ),
               ),
               PopupMenuItem(
@@ -797,6 +814,52 @@ class _DocumentEditorScreenState extends State<DocumentEditorScreen> {
       _insertStructuredNode(CalloutNode(id: generateUuid(), title: 'Idea'));
   void _insertCode() =>
       _insertStructuredNode(CodeBlockNode(id: generateUuid()));
+  void _insertTable() {
+    final rows = List.generate(
+      2,
+      (_) => TableRowData(
+        id: generateUuid(),
+        cells: List.generate(2, (_) => TableCellData(id: generateUuid())),
+      ),
+    );
+    _insertStructuredNode(
+      TableNode(
+        id: generateUuid(),
+        rows: rows,
+        columnDefinitions: List.generate(
+          2,
+          (_) => TableColumnDefinition(id: generateUuid()),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _insertFile() async {
+    try {
+      final result = await FilePicker.platform.pickFiles(withData: false);
+      final file = result?.files.single;
+      if (file == null || !mounted) return;
+      final stored = await _attachmentStorage.copyFile(file);
+      _insertStructuredNode(
+        AttachmentNode(
+          id: generateUuid(),
+          attachmentId: stored.id,
+          displayName: stored.originalFileName,
+        ),
+      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Archivo adjunto agregado')),
+        );
+      }
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('No se pudo adjuntar el archivo: $error')),
+        );
+      }
+    }
+  }
 
   void _insertStructuredNode(DocumentNode node) {
     final history = _history;

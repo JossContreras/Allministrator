@@ -78,6 +78,22 @@ final class FlutterDocumentRenderer implements DocumentRenderer<InlineSpan> {
             style: configuration.style.copyWith(fontFamily: 'monospace'),
           ),
         );
+      } else if (node is TableNode) {
+        children.add(
+          TextSpan(
+            text: node.rows
+                .map((r) => r.cells.map((c) => c.content.text).join(' | '))
+                .join('\n'),
+            style: configuration.style,
+          ),
+        );
+      } else if (node is AttachmentNode) {
+        children.add(
+          TextSpan(
+            text: 'Adjunto: ${node.displayName}',
+            style: configuration.style,
+          ),
+        );
       }
       if (index < document.nodes.length - 1) {
         children.add(TextSpan(text: '\n', style: configuration.style));
@@ -180,6 +196,10 @@ class FlutterDocumentWidgetRenderer implements DocumentRenderer<Widget> {
           _callout(node, configuration)
         else if (node is CodeBlockNode)
           _code(node, configuration)
+        else if (node is TableNode)
+          _table(node, configuration)
+        else if (node is AttachmentNode)
+          _attachment(node, configuration)
         else
           const SizedBox.shrink(),
     ],
@@ -319,6 +339,41 @@ class FlutterDocumentWidgetRenderer implements DocumentRenderer<Widget> {
             node.code.isEmpty ? 'Código vacío' : node.code,
             style: configuration.style.copyWith(fontFamily: 'monospace'),
           ),
+        ),
+      );
+
+  Widget _table(TableNode node, RenderConfiguration configuration) =>
+      SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: Table(
+          border: TableBorder.all(color: Colors.black26),
+          children: [
+            for (var i = 0; i < node.rows.length; i++)
+              TableRow(
+                decoration: node.hasHeaderRow && i == 0
+                    ? const BoxDecoration(color: Colors.black12)
+                    : null,
+                children: [
+                  for (final cell in node.rows[i].cells)
+                    Padding(
+                      padding: EdgeInsets.all(node.style.cellPadding),
+                      child: Text(
+                        cell.content.text,
+                        style: configuration.style,
+                      ),
+                    ),
+                ],
+              ),
+          ],
+        ),
+      );
+
+  Widget _attachment(AttachmentNode node, RenderConfiguration configuration) =>
+      Card(
+        child: ListTile(
+          leading: const Icon(Icons.attach_file),
+          title: Text(node.displayName),
+          subtitle: Text(node.description ?? node.presentation.name),
         ),
       );
 }

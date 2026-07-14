@@ -39,4 +39,37 @@ void main() {
     expect((restored.nodes[2] as CalloutNode).calloutType, CalloutType.warning);
     expect((restored.nodes[3] as CodeBlockNode).code, contains('✓'));
   });
+
+  test('table and attachment preserve structure and defaults', () {
+    final table = TableNode(
+      id: generateUuid(),
+      rows: [
+        TableRowData(
+          id: generateUuid(),
+          cells: [
+            TableCellData(
+              id: generateUuid(),
+              content: const StructuredCellContent(text: 'A'),
+            ),
+          ],
+        ),
+      ],
+      columnDefinitions: [TableColumnDefinition(id: generateUuid())],
+      hasHeaderRow: true,
+    );
+    final attachment = AttachmentNode(
+      id: generateUuid(),
+      attachmentId: generateUuid(),
+      displayName: 'manual.pdf',
+    );
+    final restored = StructuredDocument.fromJson(
+      StructuredDocument(nodes: [table, attachment]).toJson(),
+    );
+    expect(
+      (restored.nodes[0] as TableNode).rows.single.cells.single.content.text,
+      'A',
+    );
+    expect((restored.nodes[0] as TableNode).hasHeaderRow, isTrue);
+    expect((restored.nodes[1] as AttachmentNode).displayName, 'manual.pdf');
+  });
 }

@@ -6,7 +6,6 @@ enum SelectionContext {
   textRange,
   multiParagraphText,
   image,
-  table,
   code,
   drawing,
   attachment,
@@ -17,6 +16,12 @@ enum SelectionContext {
   callout,
   codeBlock,
   embeddedTextSelection,
+  table,
+  tableRow,
+  tableColumn,
+  tableCell,
+  tableCellText,
+  attachmentMissing,
 }
 
 class SelectionFormattingState {
@@ -62,6 +67,10 @@ class SelectionController {
         ? (selection.isCollapsed
               ? SelectionContext.codeBlock
               : SelectionContext.embeddedTextSelection)
+        : node is TableNode
+        ? SelectionContext.tableCell
+        : node is AttachmentNode
+        ? SelectionContext.attachment
         : selection.isCollapsed
         ? SelectionContext.textCursor
         : _isMultiParagraph(document)

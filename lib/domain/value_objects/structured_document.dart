@@ -178,6 +178,12 @@ sealed class DocumentNode {
     if (map['type'] == 'code' || map['type'] == 'codeBlock') {
       return CodeBlockNode.fromJson(map);
     }
+    if (map['type'] == 'table') {
+      return TableNode.fromJson(map);
+    }
+    if (map['type'] == 'attachment') {
+      return AttachmentNode.fromJson(map);
+    }
     return UnknownNode(
       id: map['id'] as String? ?? generateUuid(),
       unknownType: map['type'] as String? ?? 'unknown',
@@ -539,6 +545,323 @@ class CodeBlockNode extends DocumentNode {
     showLineNumbers: m['showLineNumbers'] as bool? ?? false,
     wrapLines: m['wrapLines'] as bool? ?? true,
     caption: m['caption'] as String?,
+    metadata: m['metadata'] is Map
+        ? Map<String, Object?>.from(m['metadata'] as Map)
+        : null,
+  );
+}
+
+enum TableWidthMode { auto, fixed, proportional }
+
+enum TableHorizontalAlignment { left, center, right }
+
+enum TableVerticalAlignment { top, center, bottom }
+
+enum AttachmentPresentation { card, compact }
+
+class StructuredCellContent {
+  const StructuredCellContent({this.text = '', this.spans = const []});
+  final String text;
+  final List<TextSpanMark> spans;
+  Map<String, Object?> toJson() => {
+    'text': text,
+    'spans': spans.map((e) => e.toJson()).toList(growable: false),
+  };
+  factory StructuredCellContent.fromJson(Object? value) {
+    final m = value is Map
+        ? Map<String, Object?>.from(value)
+        : const <String, Object?>{};
+    return StructuredCellContent(
+      text: m['text'] as String? ?? '',
+      spans: m['spans'] is List
+          ? (m['spans'] as List).map(TextSpanMark.fromJson).toList()
+          : const [],
+    );
+  }
+}
+
+class TableColumnDefinition {
+  const TableColumnDefinition({
+    required this.id,
+    this.widthMode = TableWidthMode.auto,
+    this.widthValue,
+    this.minimumWidth,
+    this.maximumWidth,
+  });
+  final Uuid id;
+  final TableWidthMode widthMode;
+  final double? widthValue, minimumWidth, maximumWidth;
+  Map<String, Object?> toJson() => {
+    'id': id,
+    'widthMode': widthMode.name,
+    'widthValue': widthValue,
+    'minimumWidth': minimumWidth,
+    'maximumWidth': maximumWidth,
+  };
+  factory TableColumnDefinition.fromJson(Object? value) {
+    final m = value is Map
+        ? Map<String, Object?>.from(value)
+        : const <String, Object?>{};
+    return TableColumnDefinition(
+      id: m['id'] as String? ?? generateUuid(),
+      widthMode: TableWidthMode.values.firstWhere(
+        (e) => e.name == m['widthMode'],
+        orElse: () => TableWidthMode.auto,
+      ),
+      widthValue: (m['widthValue'] as num?)?.toDouble(),
+      minimumWidth: (m['minimumWidth'] as num?)?.toDouble(),
+      maximumWidth: (m['maximumWidth'] as num?)?.toDouble(),
+    );
+  }
+}
+
+class TableCellData {
+  const TableCellData({
+    required this.id,
+    this.content = const StructuredCellContent(),
+    this.backgroundColorId,
+    this.horizontalAlignment = TableHorizontalAlignment.left,
+    this.verticalAlignment = TableVerticalAlignment.top,
+    this.metadata,
+  });
+  final Uuid id;
+  final StructuredCellContent content;
+  final String? backgroundColorId;
+  final TableHorizontalAlignment horizontalAlignment;
+  final TableVerticalAlignment verticalAlignment;
+  final Map<String, Object?>? metadata;
+  TableCellData copyWith({
+    StructuredCellContent? content,
+    String? backgroundColorId,
+    TableHorizontalAlignment? horizontalAlignment,
+    TableVerticalAlignment? verticalAlignment,
+  }) => TableCellData(
+    id: id,
+    content: content ?? this.content,
+    backgroundColorId: backgroundColorId ?? this.backgroundColorId,
+    horizontalAlignment: horizontalAlignment ?? this.horizontalAlignment,
+    verticalAlignment: verticalAlignment ?? this.verticalAlignment,
+    metadata: metadata,
+  );
+  Map<String, Object?> toJson() => {
+    'id': id,
+    'content': content.toJson(),
+    'backgroundColorId': backgroundColorId,
+    'horizontalAlignment': horizontalAlignment.name,
+    'verticalAlignment': verticalAlignment.name,
+    'metadata': metadata ?? const <String, Object?>{},
+  };
+  factory TableCellData.fromJson(Object? value) {
+    final m = value is Map
+        ? Map<String, Object?>.from(value)
+        : const <String, Object?>{};
+    return TableCellData(
+      id: m['id'] as String? ?? generateUuid(),
+      content: StructuredCellContent.fromJson(
+        m['content'] ?? {'text': m['text']},
+      ),
+      backgroundColorId: m['backgroundColorId'] as String?,
+      horizontalAlignment: TableHorizontalAlignment.values.firstWhere(
+        (e) => e.name == m['horizontalAlignment'],
+        orElse: () => TableHorizontalAlignment.left,
+      ),
+      verticalAlignment: TableVerticalAlignment.values.firstWhere(
+        (e) => e.name == m['verticalAlignment'],
+        orElse: () => TableVerticalAlignment.top,
+      ),
+      metadata: m['metadata'] is Map
+          ? Map<String, Object?>.from(m['metadata'] as Map)
+          : null,
+    );
+  }
+}
+
+class TableRowData {
+  const TableRowData({required this.id, required this.cells, this.metadata});
+  final Uuid id;
+  final List<TableCellData> cells;
+  final Map<String, Object?>? metadata;
+  Map<String, Object?> toJson() => {
+    'id': id,
+    'cells': cells.map((e) => e.toJson()).toList(growable: false),
+    'metadata': metadata ?? const <String, Object?>{},
+  };
+  factory TableRowData.fromJson(Object? value) {
+    final m = value is Map
+        ? Map<String, Object?>.from(value)
+        : const <String, Object?>{};
+    return TableRowData(
+      id: m['id'] as String? ?? generateUuid(),
+      cells: m['cells'] is List
+          ? (m['cells'] as List).map(TableCellData.fromJson).toList()
+          : const [],
+      metadata: m['metadata'] is Map
+          ? Map<String, Object?>.from(m['metadata'] as Map)
+          : null,
+    );
+  }
+}
+
+class TableStyleData {
+  const TableStyleData({
+    this.borderColorId = 'outline',
+    this.borderWidth = 1,
+    this.cellPadding = 8,
+  });
+  final String borderColorId;
+  final double borderWidth, cellPadding;
+  Map<String, Object?> toJson() => {
+    'borderColorId': borderColorId,
+    'borderWidth': borderWidth,
+    'cellPadding': cellPadding,
+  };
+  factory TableStyleData.fromJson(Object? value) {
+    final m = value is Map
+        ? Map<String, Object?>.from(value)
+        : const <String, Object?>{};
+    return TableStyleData(
+      borderColorId: m['borderColorId'] as String? ?? 'outline',
+      borderWidth: (m['borderWidth'] as num?)?.toDouble() ?? 1,
+      cellPadding: (m['cellPadding'] as num?)?.toDouble() ?? 8,
+    );
+  }
+}
+
+class TableNode extends DocumentNode {
+  const TableNode({
+    required super.id,
+    required this.rows,
+    required this.columnDefinitions,
+    this.hasHeaderRow = false,
+    this.style = const TableStyleData(),
+    super.metadata,
+  });
+  final List<TableRowData> rows;
+  final List<TableColumnDefinition> columnDefinitions;
+  final bool hasHeaderRow;
+  final TableStyleData style;
+  @override
+  String get type => DocumentNodeType.table.name;
+  TableNode copyWith({
+    List<TableRowData>? rows,
+    List<TableColumnDefinition>? columnDefinitions,
+    bool? hasHeaderRow,
+    TableStyleData? style,
+  }) => TableNode(
+    id: id,
+    rows: rows ?? this.rows,
+    columnDefinitions: columnDefinitions ?? this.columnDefinitions,
+    hasHeaderRow: hasHeaderRow ?? this.hasHeaderRow,
+    style: style ?? this.style,
+    metadata: metadata,
+  );
+  @override
+  Map<String, Object?> toJson() => {
+    'id': id,
+    'type': type,
+    'rows': rows.map((e) => e.toJson()).toList(growable: false),
+    'columnDefinitions': columnDefinitions
+        .map((e) => e.toJson())
+        .toList(growable: false),
+    'hasHeaderRow': hasHeaderRow,
+    'style': style.toJson(),
+    'metadata': metadata ?? const <String, Object?>{},
+  };
+  factory TableNode.fromJson(Map<String, Object?> m) {
+    final columns = m['columnDefinitions'] is List
+        ? (m['columnDefinitions'] as List)
+              .map(TableColumnDefinition.fromJson)
+              .toList()
+        : <TableColumnDefinition>[];
+    final rawRows = m['rows'] is List
+        ? (m['rows'] as List).map(TableRowData.fromJson).toList()
+        : <TableRowData>[];
+    final count = columns.isEmpty
+        ? (rawRows.isEmpty
+              ? 1
+              : rawRows
+                    .map((r) => r.cells.length)
+                    .fold(1, (a, b) => a > b ? a : b))
+        : columns.length;
+    final safeColumns = columns.isEmpty
+        ? List.generate(count, (_) => TableColumnDefinition(id: generateUuid()))
+        : columns;
+    final safeRows = rawRows.isEmpty
+        ? [
+            TableRowData(
+              id: generateUuid(),
+              cells: List.generate(
+                safeColumns.length,
+                (_) => TableCellData(id: generateUuid()),
+              ),
+            ),
+          ]
+        : rawRows;
+    return TableNode(
+      id: m['id'] as String? ?? generateUuid(),
+      rows: safeRows,
+      columnDefinitions: safeColumns,
+      hasHeaderRow: m['hasHeaderRow'] as bool? ?? false,
+      style: TableStyleData.fromJson(m['style']),
+      metadata: m['metadata'] is Map
+          ? Map<String, Object?>.from(m['metadata'] as Map)
+          : null,
+    );
+  }
+}
+
+class AttachmentNode extends DocumentNode {
+  const AttachmentNode({
+    required super.id,
+    required this.attachmentId,
+    required this.displayName,
+    this.description,
+    this.presentation = AttachmentPresentation.card,
+    this.iconId,
+    super.metadata,
+  });
+  final String attachmentId, displayName;
+  final String? description, iconId;
+  final AttachmentPresentation presentation;
+  @override
+  String get type => DocumentNodeType.attachment.name;
+  AttachmentNode copyWith({
+    String? displayName,
+    String? description,
+    AttachmentPresentation? presentation,
+    String? iconId,
+  }) => AttachmentNode(
+    id: id,
+    attachmentId: attachmentId,
+    displayName: displayName ?? this.displayName,
+    description: description ?? this.description,
+    presentation: presentation ?? this.presentation,
+    iconId: iconId ?? this.iconId,
+    metadata: metadata,
+  );
+  @override
+  Map<String, Object?> toJson() => {
+    'id': id,
+    'type': type,
+    'attachmentId': attachmentId,
+    'displayName': displayName,
+    'description': description,
+    'presentation': presentation.name,
+    'iconId': iconId,
+    'metadata': metadata ?? const <String, Object?>{},
+  };
+  factory AttachmentNode.fromJson(Map<String, Object?> m) => AttachmentNode(
+    id: m['id'] as String? ?? generateUuid(),
+    attachmentId: m['attachmentId'] as String? ?? '',
+    displayName: (m['displayName'] as String?)?.trim().isNotEmpty == true
+        ? m['displayName'] as String
+        : 'Archivo adjunto',
+    description: m['description'] as String?,
+    presentation: AttachmentPresentation.values.firstWhere(
+      (e) => e.name == m['presentation'],
+      orElse: () => AttachmentPresentation.card,
+    ),
+    iconId: m['iconId'] as String?,
     metadata: m['metadata'] is Map
         ? Map<String, Object?>.from(m['metadata'] as Map)
         : null,
@@ -919,6 +1242,62 @@ class StructuredDocument {
           metadata: node.metadata,
         );
       }
+      if (node is TableNode) {
+        final columnCount = node.columnDefinitions.isEmpty
+            ? 1
+            : node.columnDefinitions.length;
+        final columns = node.columnDefinitions.isEmpty
+            ? List.generate(
+                columnCount,
+                (_) => TableColumnDefinition(id: generateUuid()),
+              )
+            : node.columnDefinitions;
+        final rows = node.rows.isEmpty
+            ? [
+                TableRowData(
+                  id: generateUuid(),
+                  cells: List.generate(
+                    columnCount,
+                    (_) => TableCellData(id: generateUuid()),
+                  ),
+                ),
+              ]
+            : node.rows.map((row) {
+                final cells = [...row.cells];
+                while (cells.length < columnCount) {
+                  cells.add(TableCellData(id: generateUuid()));
+                }
+                if (cells.length > columnCount) {
+                  cells.removeRange(columnCount, cells.length);
+                }
+                return TableRowData(
+                  id: row.id,
+                  cells: cells,
+                  metadata: row.metadata,
+                );
+              }).toList();
+        return TableNode(
+          id: id,
+          rows: rows,
+          columnDefinitions: columns,
+          hasHeaderRow: node.hasHeaderRow && rows.isNotEmpty,
+          style: node.style,
+          metadata: node.metadata,
+        );
+      }
+      if (node is AttachmentNode) {
+        return AttachmentNode(
+          id: id,
+          attachmentId: node.attachmentId,
+          displayName: node.displayName.trim().isEmpty
+              ? 'Archivo adjunto'
+              : node.displayName,
+          description: node.description,
+          presentation: node.presentation,
+          iconId: node.iconId,
+          metadata: node.metadata,
+        );
+      }
       if (node is CodeBlockNode) {
         return node.copyWith(
           code: node.code,
@@ -1194,6 +1573,76 @@ class DocumentEditingEngine {
       DocumentPosition(nodeId: texts.first.id, offset: 0),
     );
     return EditingResult(document, selection);
+  }
+
+  EditingResult updateTableCell(
+    String nodeId,
+    String cellId,
+    StructuredCellContent content,
+  ) {
+    final node = document.nodes.where((n) => n.id == nodeId).firstOrNull;
+    if (node is! TableNode) return EditingResult(document, selection);
+    final rows = node.rows
+        .map(
+          (row) => TableRowData(
+            id: row.id,
+            cells: row.cells
+                .map(
+                  (cell) => cell.id == cellId
+                      ? cell.copyWith(content: content)
+                      : cell,
+                )
+                .toList(),
+            metadata: row.metadata,
+          ),
+        )
+        .toList();
+    return replaceNode(nodeId, node.copyWith(rows: rows));
+  }
+
+  EditingResult addTableRow(String nodeId, {int? afterIndex}) {
+    final node = document.nodes.where((n) => n.id == nodeId).firstOrNull;
+    if (node is! TableNode) return EditingResult(document, selection);
+    final rows = [...node.rows];
+    final at = ((afterIndex ?? rows.length - 1) + 1).clamp(0, rows.length);
+    rows.insert(
+      at,
+      TableRowData(
+        id: generateUuid(),
+        cells: List.generate(
+          node.columnDefinitions.length,
+          (_) => TableCellData(id: generateUuid()),
+        ),
+      ),
+    );
+    return replaceNode(nodeId, node.copyWith(rows: rows));
+  }
+
+  EditingResult addTableColumn(String nodeId, {int? afterIndex}) {
+    final node = document.nodes.where((n) => n.id == nodeId).firstOrNull;
+    if (node is! TableNode) return EditingResult(document, selection);
+    final columns = [...node.columnDefinitions];
+    final at = ((afterIndex ?? columns.length - 1) + 1).clamp(
+      0,
+      columns.length,
+    );
+    columns.insert(at, TableColumnDefinition(id: generateUuid()));
+    final rows = node.rows.map((r) {
+      final cells = [...r.cells];
+      cells.insert(at, TableCellData(id: generateUuid()));
+      return TableRowData(id: r.id, cells: cells, metadata: r.metadata);
+    }).toList();
+    return replaceNode(
+      nodeId,
+      node.copyWith(rows: rows, columnDefinitions: columns),
+    );
+  }
+
+  EditingResult toggleTableHeader(String nodeId) {
+    final node = document.nodes.where((n) => n.id == nodeId).firstOrNull;
+    return node is TableNode
+        ? replaceNode(nodeId, node.copyWith(hasHeaderRow: !node.hasHeaderRow))
+        : EditingResult(document, selection);
   }
 
   EditingResult removeNode(String nodeId) {
