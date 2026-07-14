@@ -1,0 +1,16 @@
+export 'focus_coordinator.dart';
+export 'block_geometry_registry.dart';
+export 'geometry_resolver.dart';
+export 'interaction_region.dart';
+export 'interaction_intents.dart';
+export 'interaction_commands.dart';
+export 'interaction_intent_result.dart';
+export 'interaction_resolver.dart';
+export 'input_dispatcher.dart';
+export 'normalized_input_event.dart';
+export 'interaction_overlay_controller.dart';
+export 'interaction_debug.dart';
+export 'interaction_models.dart';
+export 'workspace_interaction_controller.dart';
+export 'spatial_geometry.dart';
+export 'workspace_hit_target.dart';

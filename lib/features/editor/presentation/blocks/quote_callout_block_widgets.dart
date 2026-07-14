@@ -1,4 +1,5 @@
 import 'package:allministrator/domain/blocks/blocks.dart';
+import 'package:allministrator/domain/interaction/interaction.dart';
 import 'package:allministrator/features/editor/presentation/blocks/block_frame.dart';
 import 'package:allministrator/features/editor/presentation/blocks/block_render_context.dart';
 import 'package:flutter/material.dart';
@@ -14,6 +15,8 @@ class QuoteBlockWidget extends StatefulWidget {
 class _QuoteBlockWidgetState extends State<QuoteBlockWidget> {
   late final TextEditingController _textController;
   late final TextEditingController _citationController;
+  late final FocusNode _textFocus;
+  late final FocusNode _citationFocus;
   late QuoteBlock _current;
   bool _external = false;
 
@@ -27,6 +30,8 @@ class _QuoteBlockWidgetState extends State<QuoteBlockWidget> {
       ..addListener(_changed);
     _citationController = TextEditingController(text: block.citation)
       ..addListener(_changed);
+    _textFocus = _createFocusNode('quote-text-${block.id}');
+    _citationFocus = _createFocusNode('quote-citation-${block.id}');
   }
 
   @override
@@ -59,9 +64,10 @@ class _QuoteBlockWidgetState extends State<QuoteBlockWidget> {
   @override
   Widget build(BuildContext context) => BlockFrame(
     block: block,
-    session: widget.renderContext.session,
-    readOnly: widget.renderContext.readOnly,
-    onTap: () => widget.renderContext.session.beginEditing(block.id),
+    geometryRegistry: widget.renderContext.geometryRegistry,
+    workspaceId: widget.renderContext.session.workspace.id,
+    pageId: widget.renderContext.session.page.id,
+    visualLayer: widget.renderContext.visualLayer,
     child: Container(
       padding: const EdgeInsets.only(left: 14, top: 8, bottom: 8),
       decoration: BoxDecoration(
@@ -77,10 +83,12 @@ class _QuoteBlockWidgetState extends State<QuoteBlockWidget> {
         children: [
           TextField(
             controller: _textController,
+            focusNode: _textFocus,
             readOnly: widget.renderContext.readOnly || block.isLocked,
             minLines: 1,
             maxLines: null,
             style: const TextStyle(fontStyle: FontStyle.italic),
+            onTap: () => _startEditing('quote-text-${block.id}'),
             decoration: const InputDecoration(
               border: InputBorder.none,
               hintText: 'Escribe una cita…',
@@ -88,7 +96,9 @@ class _QuoteBlockWidgetState extends State<QuoteBlockWidget> {
           ),
           TextField(
             controller: _citationController,
+            focusNode: _citationFocus,
             readOnly: widget.renderContext.readOnly || block.isLocked,
+            onTap: () => _startEditing('quote-citation-${block.id}'),
             decoration: const InputDecoration(
               border: InputBorder.none,
               hintText: 'Autor o fuente opcional',
@@ -100,14 +110,42 @@ class _QuoteBlockWidgetState extends State<QuoteBlockWidget> {
     ),
   );
 
+  FocusNode _createFocusNode(String targetId) {
+    final node = FocusNode(debugLabel: targetId);
+    node.addListener(() {
+      widget.renderContext.interaction.focusCoordinator.reportFocusChange(
+        targetId,
+        hasFocus: node.hasFocus,
+      );
+    });
+    widget.renderContext.interaction.focusCoordinator.registerTarget(
+      targetId: targetId,
+      blockId: block.id,
+      requestFocus: node.requestFocus,
+      releaseFocus: node.unfocus,
+    );
+    return node;
+  }
+
+  void _startEditing(String targetId) {
+    widget.renderContext.interaction.dispatch(
+      StartEditingIntent(blockId: block.id, focusTargetId: targetId),
+    );
+  }
+
   @override
   void dispose() {
+    widget.renderContext.interaction.focusCoordinator
+      ..unregisterTarget('quote-text-${block.id}')
+      ..unregisterTarget('quote-citation-${block.id}');
     _textController
       ..removeListener(_changed)
       ..dispose();
     _citationController
       ..removeListener(_changed)
       ..dispose();
+    _textFocus.dispose();
+    _citationFocus.dispose();
     super.dispose();
   }
 }
@@ -123,6 +161,8 @@ class CalloutBlockWidget extends StatefulWidget {
 class _CalloutBlockWidgetState extends State<CalloutBlockWidget> {
   late final TextEditingController _titleController;
   late final TextEditingController _textController;
+  late final FocusNode _titleFocus;
+  late final FocusNode _textFocus;
   late CalloutBlock _current;
   bool _external = false;
 
@@ -136,6 +176,8 @@ class _CalloutBlockWidgetState extends State<CalloutBlockWidget> {
       ..addListener(_changed);
     _textController = TextEditingController(text: block.text)
       ..addListener(_changed);
+    _titleFocus = _createFocusNode('callout-title-${block.id}');
+    _textFocus = _createFocusNode('callout-text-${block.id}');
   }
 
   @override
@@ -170,9 +212,10 @@ class _CalloutBlockWidgetState extends State<CalloutBlockWidget> {
     final colors = _colors(context, block.calloutType);
     return BlockFrame(
       block: block,
-      session: widget.renderContext.session,
-      readOnly: widget.renderContext.readOnly,
-      onTap: () => widget.renderContext.session.beginEditing(block.id),
+      geometryRegistry: widget.renderContext.geometryRegistry,
+      workspaceId: widget.renderContext.session.workspace.id,
+      pageId: widget.renderContext.session.page.id,
+      visualLayer: widget.renderContext.visualLayer,
       child: Container(
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
@@ -188,30 +231,10 @@ class _CalloutBlockWidgetState extends State<CalloutBlockWidget> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  if (widget.renderContext.isSelected &&
-                      !widget.renderContext.readOnly)
-                    DropdownButton<BlockCalloutType>(
-                      value: block.calloutType,
-                      isDense: true,
-                      items: [
-                        for (final type in BlockCalloutType.values)
-                          DropdownMenuItem(
-                            value: type,
-                            child: Text(_label(type)),
-                          ),
-                      ],
-                      onChanged: (value) {
-                        if (value != null) {
-                          widget.renderContext.onChanged(
-                            block.copyWith(calloutType: value),
-                            kind: 'updateCalloutType',
-                            refreshPresentation: true,
-                          );
-                        }
-                      },
-                    ),
                   TextField(
                     controller: _titleController,
+                    focusNode: _titleFocus,
+                    onTap: () => _startEditing('callout-title-${block.id}'),
                     readOnly: widget.renderContext.readOnly || block.isLocked,
                     style: const TextStyle(fontWeight: FontWeight.w600),
                     decoration: const InputDecoration(
@@ -222,6 +245,8 @@ class _CalloutBlockWidgetState extends State<CalloutBlockWidget> {
                   ),
                   TextField(
                     controller: _textController,
+                    focusNode: _textFocus,
+                    onTap: () => _startEditing('callout-text-${block.id}'),
                     readOnly: widget.renderContext.readOnly || block.isLocked,
                     minLines: 1,
                     maxLines: null,
@@ -237,6 +262,29 @@ class _CalloutBlockWidgetState extends State<CalloutBlockWidget> {
           ],
         ),
       ),
+    );
+  }
+
+  FocusNode _createFocusNode(String targetId) {
+    final node = FocusNode(debugLabel: targetId);
+    node.addListener(() {
+      widget.renderContext.interaction.focusCoordinator.reportFocusChange(
+        targetId,
+        hasFocus: node.hasFocus,
+      );
+    });
+    widget.renderContext.interaction.focusCoordinator.registerTarget(
+      targetId: targetId,
+      blockId: block.id,
+      requestFocus: node.requestFocus,
+      releaseFocus: node.unfocus,
+    );
+    return node;
+  }
+
+  void _startEditing(String targetId) {
+    widget.renderContext.interaction.dispatch(
+      StartEditingIntent(blockId: block.id, focusTargetId: targetId),
     );
   }
 
@@ -265,7 +313,7 @@ class _CalloutBlockWidgetState extends State<CalloutBlockWidget> {
     BlockCalloutType.note => Icons.sticky_note_2_outlined,
   };
 
-  String _label(BlockCalloutType type) => switch (type) {
+  String calloutTypeLabel(BlockCalloutType type) => switch (type) {
     BlockCalloutType.info => 'Información',
     BlockCalloutType.tip => 'Consejo',
     BlockCalloutType.warning => 'Advertencia',
@@ -276,12 +324,17 @@ class _CalloutBlockWidgetState extends State<CalloutBlockWidget> {
 
   @override
   void dispose() {
+    widget.renderContext.interaction.focusCoordinator
+      ..unregisterTarget('callout-title-${block.id}')
+      ..unregisterTarget('callout-text-${block.id}');
     _titleController
       ..removeListener(_changed)
       ..dispose();
     _textController
       ..removeListener(_changed)
       ..dispose();
+    _titleFocus.dispose();
+    _textFocus.dispose();
     super.dispose();
   }
 }
@@ -295,9 +348,10 @@ class UnknownBlockWidget extends StatelessWidget {
     final block = renderContext.block as UnknownBlock;
     return BlockFrame(
       block: block,
-      session: renderContext.session,
-      readOnly: renderContext.readOnly,
-      onTap: () => renderContext.session.selectBlock(block.id),
+      geometryRegistry: renderContext.geometryRegistry,
+      workspaceId: renderContext.session.workspace.id,
+      pageId: renderContext.session.page.id,
+      visualLayer: renderContext.visualLayer,
       child: ListTile(
         leading: const Icon(Icons.extension_off_outlined),
         title: Text('Bloque no compatible: ${block.originalType}'),

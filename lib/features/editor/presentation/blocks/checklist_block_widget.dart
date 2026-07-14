@@ -1,5 +1,6 @@
 import 'package:allministrator/core/utils/uuid_generator.dart';
 import 'package:allministrator/domain/blocks/blocks.dart';
+import 'package:allministrator/domain/interaction/interaction.dart';
 import 'package:allministrator/features/editor/presentation/blocks/block_frame.dart';
 import 'package:allministrator/features/editor/presentation/blocks/block_render_context.dart';
 import 'package:flutter/material.dart';
@@ -46,14 +47,30 @@ class _ChecklistBlockWidgetState extends State<ChecklistBlockWidget> {
       if (!controller.selection.isValid && controller.text != item.text) {
         controller.text = item.text;
       }
-      _focusNodes.putIfAbsent(
-        item.id,
-        () => FocusNode(debugLabel: 'checklist-${item.id}'),
-      );
+      _focusNodes.putIfAbsent(item.id, () {
+        final targetId = _focusTargetId(item.id);
+        final node = FocusNode(debugLabel: targetId);
+        node.addListener(() {
+          widget.renderContext.interaction.focusCoordinator.reportFocusChange(
+            targetId,
+            hasFocus: node.hasFocus,
+          );
+        });
+        widget.renderContext.interaction.focusCoordinator.registerTarget(
+          targetId: targetId,
+          blockId: block.id,
+          requestFocus: node.requestFocus,
+          releaseFocus: node.unfocus,
+        );
+        return node;
+      });
     }
     for (final id
         in _controllers.keys.where((id) => !ids.contains(id)).toList()) {
       _controllers.remove(id)?.dispose();
+      widget.renderContext.interaction.focusCoordinator.unregisterTarget(
+        _focusTargetId(id),
+      );
       _focusNodes.remove(id)?.dispose();
     }
   }
@@ -61,22 +78,14 @@ class _ChecklistBlockWidgetState extends State<ChecklistBlockWidget> {
   @override
   Widget build(BuildContext context) => BlockFrame(
     block: block,
-    session: widget.renderContext.session,
-    readOnly: widget.renderContext.readOnly,
-    onTap: () => widget.renderContext.session.selectBlock(block.id),
+    geometryRegistry: widget.renderContext.geometryRegistry,
+    workspaceId: widget.renderContext.session.workspace.id,
+    pageId: widget.renderContext.session.page.id,
+    visualLayer: widget.renderContext.visualLayer,
     child: Column(
       children: [
         for (var index = 0; index < block.items.length; index++)
           _item(context, block.items[index], index),
-        if (widget.renderContext.isSelected && !widget.renderContext.readOnly)
-          Align(
-            alignment: Alignment.centerLeft,
-            child: TextButton.icon(
-              onPressed: () => _addItem(block.items.length - 1),
-              icon: const Icon(Icons.add),
-              label: const Text('Agregar elemento'),
-            ),
-          ),
       ],
     ),
   );
@@ -96,48 +105,66 @@ class _ChecklistBlockWidgetState extends State<ChecklistBlockWidget> {
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            AnimatedSwitcher(
-              duration: const Duration(milliseconds: 150),
-              child: Checkbox(
-                key: ValueKey(item.isChecked),
-                value: item.isChecked,
-                onChanged: widget.renderContext.readOnly || block.isLocked
-                    ? null
-                    : (value) {
-                        final currentItem = block.items[index];
-                        _replaceItem(
-                          index,
-                          currentItem.copyWith(isChecked: value ?? false),
-                          kind: 'toggleChecklistItem',
-                        );
-                      },
+            widget.renderContext.region(
+              id: 'checkbox-${item.id}',
+              target: InternalControlHitTarget(
+                block.id,
+                controlId: 'checkbox-${item.id}',
+              ),
+              priority: 30,
+              child: AnimatedSwitcher(
+                duration: const Duration(milliseconds: 150),
+                child: Checkbox(
+                  key: ValueKey(item.isChecked),
+                  value: item.isChecked,
+                  onChanged: widget.renderContext.readOnly || block.isLocked
+                      ? null
+                      : (value) {
+                          final currentItem = block.items[index];
+                          _replaceItem(
+                            index,
+                            currentItem.copyWith(isChecked: value ?? false),
+                            kind: 'toggleChecklistItem',
+                          );
+                        },
+                ),
               ),
             ),
             Expanded(
-              child: TextField(
-                controller: _controllers[item.id],
-                focusNode: _focusNodes[item.id],
-                readOnly: widget.renderContext.readOnly || block.isLocked,
-                textInputAction: TextInputAction.next,
-                decoration: const InputDecoration(
-                  border: InputBorder.none,
-                  hintText: 'Elemento',
-                  isDense: true,
+              child: widget.renderContext.region(
+                id: 'item-text-${item.id}',
+                target: TextRegionHitTarget(block.id, fieldId: item.id),
+                priority: 20,
+                child: TextField(
+                  controller: _controllers[item.id],
+                  focusNode: _focusNodes[item.id],
+                  readOnly: widget.renderContext.readOnly || block.isLocked,
+                  textInputAction: TextInputAction.next,
+                  decoration: const InputDecoration(
+                    border: InputBorder.none,
+                    hintText: 'Elemento',
+                    isDense: true,
+                  ),
+                  style: TextStyle(
+                    decoration: item.isChecked
+                        ? TextDecoration.lineThrough
+                        : null,
+                  ),
+                  onTap: () => widget.renderContext.interaction.dispatch(
+                    StartEditingIntent(
+                      blockId: block.id,
+                      focusTargetId: _focusTargetId(item.id),
+                      selectBlock: false,
+                    ),
+                  ),
+                  onChanged: (text) => _replaceItem(
+                    index,
+                    item.copyWith(text: text),
+                    kind: 'editChecklistItem',
+                    mergeable: true,
+                  ),
+                  onSubmitted: (_) => _addItem(index),
                 ),
-                style: TextStyle(
-                  decoration: item.isChecked
-                      ? TextDecoration.lineThrough
-                      : null,
-                ),
-                onTap: () =>
-                    widget.renderContext.session.beginEditing(block.id),
-                onChanged: (text) => _replaceItem(
-                  index,
-                  item.copyWith(text: text),
-                  kind: 'editChecklistItem',
-                  mergeable: true,
-                ),
-                onSubmitted: (_) => _addItem(index),
               ),
             ),
           ],
@@ -166,7 +193,13 @@ class _ChecklistBlockWidgetState extends State<ChecklistBlockWidget> {
       refreshPresentation: true,
     );
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      _focusNodes[item.id]?.requestFocus();
+      widget.renderContext.interaction.dispatch(
+        StartEditingIntent(
+          blockId: block.id,
+          focusTargetId: _focusTargetId(item.id),
+          selectBlock: false,
+        ),
+      );
     });
   }
 
@@ -181,11 +214,22 @@ class _ChecklistBlockWidgetState extends State<ChecklistBlockWidget> {
     );
     final target = items[(index - 1).clamp(0, items.length - 1)].id;
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      _focusNodes[target]?.requestFocus();
+      widget.renderContext.interaction.dispatch(
+        StartEditingIntent(
+          blockId: block.id,
+          focusTargetId: _focusTargetId(target),
+          selectBlock: false,
+        ),
+      );
       _controllers.remove(removed.id)?.dispose();
+      widget.renderContext.interaction.focusCoordinator.unregisterTarget(
+        _focusTargetId(removed.id),
+      );
       _focusNodes.remove(removed.id)?.dispose();
     });
   }
+
+  String _focusTargetId(String itemId) => 'checklist-${block.id}-$itemId';
 
   @override
   void dispose() {
@@ -194,6 +238,11 @@ class _ChecklistBlockWidgetState extends State<ChecklistBlockWidget> {
     }
     for (final node in _focusNodes.values) {
       node.dispose();
+    }
+    for (final id in _focusNodes.keys) {
+      widget.renderContext.interaction.focusCoordinator.unregisterTarget(
+        _focusTargetId(id),
+      );
     }
     super.dispose();
   }

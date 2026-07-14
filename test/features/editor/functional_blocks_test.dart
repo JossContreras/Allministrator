@@ -2,12 +2,14 @@ import 'package:allministrator/domain/blocks/blocks.dart';
 import 'package:allministrator/domain/editing/workspace_editor_session.dart';
 import 'package:allministrator/domain/entities/workspace.dart';
 import 'package:allministrator/domain/entities/workspace_page.dart';
+import 'package:allministrator/domain/interaction/interaction.dart';
 import 'package:allministrator/features/editor/presentation/blocks/attachment_block_widget.dart';
 import 'package:allministrator/features/editor/presentation/blocks/block_render_context.dart';
 import 'package:allministrator/features/editor/presentation/blocks/checklist_block_widget.dart';
 import 'package:allministrator/features/editor/presentation/blocks/code_block_widget.dart';
 import 'package:allministrator/features/editor/presentation/blocks/image_block_widget.dart';
 import 'package:allministrator/features/editor/presentation/blocks/table_block_widget.dart';
+import 'package:allministrator/features/editor/presentation/interaction/workspace_block_actions.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -19,10 +21,11 @@ void main() {
       items: const [BlockChecklistItem(id: 'item-1', text: '')],
     );
     final session = _session(block);
-    session.selectBlock(block.id);
+    final interaction = WorkspaceInteractionController();
     await tester.pumpWidget(
       _widgetHarness(
         session,
+        interaction,
         (context) => ChecklistBlockWidget(renderContext: context),
       ),
     );
@@ -35,9 +38,14 @@ void main() {
     var current = session.blocks.single as ChecklistBlock;
     expect(current.items.single.text, 'Tarea real');
     expect(current.items.single.isChecked, isTrue);
+    expect(interaction.context.selectedBlock, isNull);
 
-    await tester.tap(find.text('Agregar elemento'));
+    interaction.dispatch(SelectBlockIntent(block.id));
     await tester.pump();
+    await tester.tap(find.byTooltip('Opciones del bloque'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Agregar elemento'));
+    await tester.pumpAndSettle();
     current = session.blocks.single as ChecklistBlock;
     expect(current.items, hasLength(2));
     expect(current.items.map((item) => item.id).toSet(), hasLength(2));
@@ -68,10 +76,12 @@ void main() {
       ],
     );
     final session = _session(block);
-    session.selectBlock(block.id);
+    final interaction = WorkspaceInteractionController()
+      ..dispatch(SelectBlockIntent(block.id));
     await tester.pumpWidget(
       _widgetHarness(
         session,
+        interaction,
         (context) => TableBlockWidget(renderContext: context),
       ),
     );
@@ -79,11 +89,21 @@ void main() {
 
     expect(find.byType(Table), findsOneWidget);
     expect(find.byType(TextFormField), findsNWidgets(4));
+    await tester.tap(find.byType(TextFormField).first);
+    await tester.pump();
     await tester.enterText(find.byType(TextFormField).first, 'A1');
-    await tester.tap(find.text('Fila'));
+    expect(interaction.context.selectedBlock, isNull);
+    expect(interaction.context.editingBlock, 'table');
+    interaction.dispatch(SelectBlockIntent(block.id));
     await tester.pump();
-    await tester.tap(find.text('Columna'));
-    await tester.pump();
+    await tester.tap(find.byTooltip('Opciones del bloque'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Agregar fila'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Opciones del bloque'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Agregar columna'));
+    await tester.pumpAndSettle();
 
     final current = session.blocks.single as TableBlock;
     expect(current.rows.first.cells.first.text, 'A1');
@@ -103,9 +123,11 @@ void main() {
       sizeBytes: 2048,
     );
     final session = _session(block);
+    final interaction = WorkspaceInteractionController();
     await tester.pumpWidget(
       _widgetHarness(
         session,
+        interaction,
         (context) => AttachmentBlockWidget(renderContext: context),
         path: r'C:\private\attachments\attachment.pdf',
       ),
@@ -121,10 +143,12 @@ void main() {
   ) async {
     final block = CodeBlock(id: 'code', orderKey: 0, languageId: 'dart');
     final session = _session(block);
-    session.selectBlock(block.id);
+    final interaction = WorkspaceInteractionController()
+      ..dispatch(SelectBlockIntent(block.id));
     await tester.pumpWidget(
       _widgetHarness(
         session,
+        interaction,
         (context) => CodeBlockWidget(renderContext: context),
       ),
     );
@@ -153,9 +177,11 @@ void main() {
       altText: 'Plano',
     );
     final session = _session(block);
+    final interaction = WorkspaceInteractionController();
     await tester.pumpWidget(
       _widgetHarness(
         session,
+        interaction,
         (context) => ImageBlockWidget(renderContext: context),
       ),
     );
@@ -169,41 +195,66 @@ typedef _Renderer = Widget Function(BlockRenderContext context);
 
 Widget _widgetHarness(
   WorkspaceEditorSession session,
+  WorkspaceInteractionController interaction,
   _Renderer renderer, {
   String? path,
-}) => MaterialApp(
-  home: Scaffold(
-    body: SingleChildScrollView(
-      child: ValueListenableBuilder<int>(
-        valueListenable: session.presentationRevision,
-        builder: (context, _, _) {
-          final block = session.blocks.single;
-          final renderContext = BlockRenderContext(
-            block: block,
-            session: session,
-            onChanged:
-                (
-                  block, {
-                  required kind,
-                  mergeable = false,
-                  refreshPresentation = false,
-                }) => session.updateBlock(
-                  block,
-                  kind: kind,
-                  mergeable: mergeable,
-                  refreshPresentation: refreshPresentation,
-                ),
-            resolveAttachmentPath: (_) => path,
-            onReplaceImage: (_) async {},
-            onReplaceAttachment: (_) async {},
-            onOpenAttachment: (_) async {},
-          );
-          return renderer(renderContext);
-        },
+}) {
+  final geometryRegistry = BlockGeometryRegistry();
+  return MaterialApp(
+    home: Scaffold(
+      body: SingleChildScrollView(
+        child: AnimatedBuilder(
+          animation: Listenable.merge([
+            session.presentationRevision,
+            interaction.blockListenable(session.blocks.single.id),
+          ]),
+          builder: (context, _) {
+            final block = session.blocks.single;
+            final renderContext = BlockRenderContext(
+              block: block,
+              session: session,
+              interaction: interaction,
+              geometryRegistry: geometryRegistry,
+              visualLayer: 0,
+              onChanged:
+                  (
+                    block, {
+                    required kind,
+                    mergeable = false,
+                    refreshPresentation = false,
+                  }) => session.updateBlock(
+                    block,
+                    kind: kind,
+                    mergeable: mergeable,
+                    refreshPresentation: refreshPresentation,
+                  ),
+              resolveAttachmentPath: (_) => path,
+              onReplaceImage: (_) async {},
+              onReplaceAttachment: (_) async {},
+              onOpenAttachment: (_) async {},
+            );
+            return Column(
+              children: [
+                renderer(renderContext),
+                if (interaction.context.selectedBlock == block.id)
+                  WorkspaceBlockActions(
+                    block: block,
+                    session: session,
+                    interaction: interaction,
+                    onReplaceImage: (_) async {},
+                    onEditImageDetails: (_) async {},
+                    onReplaceAttachment: (_) async {},
+                    onOpenAttachment: (_) async {},
+                    onEditAttachmentDetails: (_) async {},
+                  ),
+              ],
+            );
+          },
+        ),
       ),
     ),
-  ),
-);
+  );
+}
 
 WorkspaceEditorSession _session(BaseBlock block) {
   final now = DateTime.utc(2026);

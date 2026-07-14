@@ -1,4 +1,6 @@
 import 'package:allministrator/domain/blocks/blocks.dart';
+import 'package:allministrator/core/utils/uuid_generator.dart';
+import 'package:allministrator/domain/interaction/interaction.dart';
 import 'package:allministrator/features/editor/presentation/blocks/block_frame.dart';
 import 'package:allministrator/features/editor/presentation/blocks/block_render_context.dart';
 import 'package:flutter/material.dart';
@@ -17,15 +19,24 @@ class _TextBlockWidgetState extends State<TextBlockWidget> {
   late final FocusNode _focusNode;
   bool _applyingExternalValue = false;
 
+  String get _focusTargetId => 'text-${_block.id}';
+
   TextBlock get _block => widget.renderContext.block as TextBlock;
 
   @override
   void initState() {
     super.initState();
     _controller = _RichBlockEditingController(_block);
+    final interactionSelection =
+        widget.renderContext.interaction.context.currentSelection;
     final stored =
-        widget.renderContext.session.selectionFor(_block.id) ??
-        _block.selection;
+        interactionSelection is TextSelectionState &&
+            interactionSelection.blockId == _block.id
+        ? BlockTextSelection(
+            baseOffset: interactionSelection.baseOffset,
+            extentOffset: interactionSelection.extentOffset,
+          )
+        : _block.selection;
     if (stored != null) {
       _controller.selection = TextSelection(
         baseOffset: stored.baseOffset.clamp(0, _controller.text.length),
@@ -35,6 +46,12 @@ class _TextBlockWidgetState extends State<TextBlockWidget> {
     _controller.addListener(_handleControllerChanged);
     _focusNode = FocusNode(debugLabel: 'text-block-${_block.id}')
       ..addListener(_handleFocusChanged);
+    widget.renderContext.interaction.focusCoordinator.registerTarget(
+      targetId: _focusTargetId,
+      blockId: _block.id,
+      requestFocus: _focusNode.requestFocus,
+      releaseFocus: _focusNode.unfocus,
+    );
     _requestFocusIfNeeded();
   }
 
@@ -45,9 +62,16 @@ class _TextBlockWidgetState extends State<TextBlockWidget> {
     if (incoming.plainText != _controller.text ||
         incoming.version != _controller.block.version) {
       _applyingExternalValue = true;
+      final currentSelection =
+          widget.renderContext.interaction.context.currentSelection;
       final selection =
-          widget.renderContext.session.selectionFor(incoming.id) ??
-          incoming.selection;
+          currentSelection is TextSelectionState &&
+              currentSelection.blockId == incoming.id
+          ? BlockTextSelection(
+              baseOffset: currentSelection.baseOffset,
+              extentOffset: currentSelection.extentOffset,
+            )
+          : incoming.selection;
       _controller.setExternalBlock(incoming, selection: selection);
       _applyingExternalValue = false;
     } else {
@@ -62,14 +86,18 @@ class _TextBlockWidgetState extends State<TextBlockWidget> {
     }
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted || _focusNode.hasFocus) return;
-      _focusNode.requestFocus();
+      widget.renderContext.interaction.focusCoordinator.requestFocus(
+        _block.id,
+        targetId: _focusTargetId,
+      );
     });
   }
 
   void _handleFocusChanged() {
-    if (_focusNode.hasFocus) {
-      widget.renderContext.session.beginEditing(_block.id);
-    }
+    widget.renderContext.interaction.focusCoordinator.reportFocusChange(
+      _focusTargetId,
+      hasFocus: _focusNode.hasFocus,
+    );
     if (mounted) setState(() {});
   }
 
@@ -85,13 +113,26 @@ class _TextBlockWidgetState extends State<TextBlockWidget> {
         _controller.text.length,
       ),
     );
-    widget.renderContext.session.updateTextSelection(_block.id, selection);
-    if (_controller.text == _controller.block.plainText) return;
-    final updated = _controller.block
-        .withPlainText(_controller.text)
-        .copyWith(selection: selection);
-    _controller.block = updated;
-    widget.renderContext.onChanged(updated, kind: 'editText', mergeable: true);
+    if (_controller.text != _controller.block.plainText) {
+      final updated = _controller.block
+          .withPlainText(_controller.text)
+          .copyWith(selection: selection);
+      _controller.block = updated;
+      widget.renderContext.onChanged(
+        updated,
+        kind: 'editText',
+        mergeable: true,
+      );
+    }
+    widget.renderContext.interaction.dispatch(
+      UpdateTextSelectionIntent(
+        TextSelectionState(
+          blockId: _block.id,
+          baseOffset: selection.baseOffset,
+          extentOffset: selection.extentOffset,
+        ),
+      ),
+    );
   }
 
   @override
@@ -99,51 +140,88 @@ class _TextBlockWidgetState extends State<TextBlockWidget> {
     final readOnly = widget.renderContext.readOnly || _block.isLocked;
     return BlockFrame(
       block: _block,
-      session: widget.renderContext.session,
-      readOnly: widget.renderContext.readOnly,
+      geometryRegistry: widget.renderContext.geometryRegistry,
+      workspaceId: widget.renderContext.session.workspace.id,
+      pageId: widget.renderContext.session.page.id,
+      visualLayer: widget.renderContext.visualLayer,
       compact: true,
-      onTap: () {
-        widget.renderContext.session.beginEditing(_block.id);
-        if (!readOnly) _focusNode.requestFocus();
-      },
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          TextField(
-            controller: _controller,
-            focusNode: _focusNode,
-            readOnly: readOnly,
-            minLines: 1,
-            maxLines: null,
-            textAlign: _textAlign(),
-            keyboardType: TextInputType.multiline,
-            textCapitalization: TextCapitalization.sentences,
-            decoration: const InputDecoration(
-              hintText: 'Escribe aquí…',
-              border: InputBorder.none,
-              isDense: true,
-              contentPadding: EdgeInsets.symmetric(horizontal: 6, vertical: 8),
+          widget.renderContext.region(
+            id: 'text',
+            target: TextRegionHitTarget(_block.id),
+            priority: 20,
+            child: TextField(
+              controller: _controller,
+              focusNode: _focusNode,
+              readOnly: readOnly,
+              minLines: 1,
+              maxLines: null,
+              textAlign: _textAlign(),
+              keyboardType: TextInputType.multiline,
+              textCapitalization: TextCapitalization.sentences,
+              decoration: const InputDecoration(
+                hintText: 'Escribe aquí…',
+                border: InputBorder.none,
+                isDense: true,
+                contentPadding: EdgeInsets.symmetric(
+                  horizontal: 6,
+                  vertical: 8,
+                ),
+              ),
+              onTap: readOnly
+                  ? null
+                  : () {
+                      final dispatcher = widget.renderContext.inputDispatcher;
+                      if (dispatcher != null) {
+                        dispatcher.dispatch(
+                          NormalizedInputEvent(
+                            eventId: generateUuid(),
+                            workspaceId:
+                                widget.renderContext.session.workspace.id,
+                            pageId: widget.renderContext.session.page.id,
+                            type: NormalizedInputEventType.tap,
+                            deviceType: InputDeviceType.touch,
+                            timestamp: DateTime.now().toUtc(),
+                            hitTarget: TextRegionHitTarget(
+                              _block.id,
+                              fieldId: _focusTargetId,
+                            ),
+                            targetBlockId: _block.id,
+                            targetRegionId: 'text',
+                          ),
+                        );
+                        return;
+                      }
+                      widget.renderContext.interaction.dispatch(
+                        StartEditingIntent(
+                          blockId: _block.id,
+                          focusTargetId: _focusTargetId,
+                          selection: TextSelectionState(
+                            blockId: _block.id,
+                            baseOffset: _controller.selection.baseOffset,
+                            extentOffset: _controller.selection.extentOffset,
+                          ),
+                        ),
+                      );
+                    },
             ),
           ),
-          if (widget.renderContext.isSelected &&
-              widget.renderContext.session.canMergeTextWithNext(_block.id))
-            Align(
-              alignment: Alignment.centerLeft,
-              child: TextButton.icon(
-                onPressed: () =>
-                    widget.renderContext.session.mergeTextWithNext(_block.id),
-                icon: const Icon(Icons.merge_type),
-                label: const Text('Fusionar con el siguiente texto'),
-              ),
-            ),
         ],
       ),
     );
   }
 
   TextAlign _textAlign() {
-    final alignment = widget.renderContext.isSelected
-        ? widget.renderContext.session.currentParagraphAlignment
+    final alignment = widget.renderContext.isEditing
+        ? widget.renderContext.session.currentParagraphAlignmentFor(
+            _block.id,
+            BlockTextSelection(
+              baseOffset: _controller.selection.baseOffset,
+              extentOffset: _controller.selection.extentOffset,
+            ),
+          )
         : _block.paragraphs.first.attributes.alignment;
     return switch (alignment) {
       'center' => TextAlign.center,
@@ -155,6 +233,9 @@ class _TextBlockWidgetState extends State<TextBlockWidget> {
 
   @override
   void dispose() {
+    widget.renderContext.interaction.focusCoordinator.unregisterTarget(
+      _focusTargetId,
+    );
     _controller
       ..removeListener(_handleControllerChanged)
       ..dispose();

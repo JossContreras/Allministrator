@@ -22,13 +22,11 @@ void main() {
         ],
       ),
     );
-    session.selectBlock('text-1', beginEditing: true);
-    session.updateTextSelection(
-      'text-1',
-      const BlockTextSelection(baseOffset: 4, extentOffset: 4),
+    session.insertBlock(
+      DividerBlock(id: 'divider-1', orderKey: 1),
+      activeBlockId: 'text-1',
+      textSelection: const BlockTextSelection(baseOffset: 4, extentOffset: 4),
     );
-
-    session.insertBlock(DividerBlock(id: 'divider-1', orderKey: 1));
 
     expect(session.blocks, hasLength(3));
     expect((session.blocks[0] as TextBlock).plainText, 'Hola');

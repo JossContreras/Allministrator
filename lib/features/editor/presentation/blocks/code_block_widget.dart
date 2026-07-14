@@ -1,5 +1,6 @@
 import 'package:allministrator/domain/blocks/blocks.dart';
 import 'package:allministrator/domain/editing/code_language_catalog.dart';
+import 'package:allministrator/domain/interaction/interaction.dart';
 import 'package:allministrator/features/editor/presentation/blocks/block_frame.dart';
 import 'package:allministrator/features/editor/presentation/blocks/block_render_context.dart';
 import 'package:flutter/material.dart';
@@ -20,6 +21,8 @@ class _CodeBlockWidgetState extends State<CodeBlockWidget> {
   late CodeBlock _current;
   bool _external = false;
 
+  String get _focusTargetId => 'code-${block.id}';
+
   CodeBlock get block => _current;
 
   @override
@@ -28,7 +31,14 @@ class _CodeBlockWidgetState extends State<CodeBlockWidget> {
     _current = widget.renderContext.block as CodeBlock;
     _controller = TextEditingController(text: block.code)
       ..addListener(_handleChanged);
-    _focusNode = FocusNode(debugLabel: 'code-block-${block.id}');
+    _focusNode = FocusNode(debugLabel: 'code-block-${block.id}')
+      ..addListener(_handleFocusChanged);
+    widget.renderContext.interaction.focusCoordinator.registerTarget(
+      targetId: _focusTargetId,
+      blockId: block.id,
+      requestFocus: _focusNode.requestFocus,
+      releaseFocus: _focusNode.unfocus,
+    );
   }
 
   @override
@@ -55,6 +65,13 @@ class _CodeBlockWidgetState extends State<CodeBlockWidget> {
     widget.renderContext.onChanged(_current, kind: 'editCode', mergeable: true);
   }
 
+  void _handleFocusChanged() {
+    widget.renderContext.interaction.focusCoordinator.reportFocusChange(
+      _focusTargetId,
+      hasFocus: _focusNode.hasFocus,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final surface = Theme.of(context).brightness == Brightness.dark
@@ -62,12 +79,10 @@ class _CodeBlockWidgetState extends State<CodeBlockWidget> {
         : const Color(0xFFF3F5F7);
     return BlockFrame(
       block: block,
-      session: widget.renderContext.session,
-      readOnly: widget.renderContext.readOnly,
-      onTap: () {
-        widget.renderContext.session.beginEditing(block.id);
-        _focusNode.requestFocus();
-      },
+      geometryRegistry: widget.renderContext.geometryRegistry,
+      workspaceId: widget.renderContext.session.workspace.id,
+      pageId: widget.renderContext.session.page.id,
+      visualLayer: widget.renderContext.visualLayer,
       child: Container(
         decoration: BoxDecoration(
           color: surface,
@@ -169,19 +184,31 @@ class _CodeBlockWidgetState extends State<CodeBlockWidget> {
                           ? constraints.maxWidth -
                                 (block.showLineNumbers ? 48 : 0)
                           : 720,
-                      child: TextField(
-                        controller: _controller,
-                        focusNode: _focusNode,
-                        readOnly:
-                            widget.renderContext.readOnly || block.isLocked,
-                        minLines: 3,
-                        maxLines: null,
-                        keyboardType: TextInputType.multiline,
-                        style: const TextStyle(fontFamily: 'monospace'),
-                        decoration: const InputDecoration(
-                          border: InputBorder.none,
-                          hintText: 'Escribe código…',
-                          contentPadding: EdgeInsets.all(10),
+                      child: widget.renderContext.region(
+                        id: 'code-text',
+                        target: TextRegionHitTarget(block.id, fieldId: 'code'),
+                        priority: 20,
+                        child: TextField(
+                          controller: _controller,
+                          focusNode: _focusNode,
+                          readOnly:
+                              widget.renderContext.readOnly || block.isLocked,
+                          minLines: 3,
+                          maxLines: null,
+                          keyboardType: TextInputType.multiline,
+                          style: const TextStyle(fontFamily: 'monospace'),
+                          decoration: const InputDecoration(
+                            border: InputBorder.none,
+                            hintText: 'Escribe código…',
+                            contentPadding: EdgeInsets.all(10),
+                          ),
+                          onTap: () =>
+                              widget.renderContext.interaction.dispatch(
+                                StartEditingIntent(
+                                  blockId: block.id,
+                                  focusTargetId: _focusTargetId,
+                                ),
+                              ),
                         ),
                       ),
                     ),
@@ -205,10 +232,15 @@ class _CodeBlockWidgetState extends State<CodeBlockWidget> {
 
   @override
   void dispose() {
+    widget.renderContext.interaction.focusCoordinator.unregisterTarget(
+      _focusTargetId,
+    );
     _controller
       ..removeListener(_handleChanged)
       ..dispose();
-    _focusNode.dispose();
+    _focusNode
+      ..removeListener(_handleFocusChanged)
+      ..dispose();
     super.dispose();
   }
 

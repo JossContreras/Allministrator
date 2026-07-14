@@ -1,6 +1,7 @@
 import 'package:allministrator/core/shared/identifiers.dart';
 import 'package:allministrator/core/utils/uuid_generator.dart';
 import 'package:allministrator/domain/blocks/blocks.dart';
+import 'package:allministrator/domain/interaction/interaction.dart';
 import 'package:allministrator/features/editor/presentation/blocks/attachment_block_widget.dart';
 import 'package:allministrator/features/editor/presentation/blocks/block_render_context.dart';
 import 'package:allministrator/features/editor/presentation/blocks/checklist_block_widget.dart';
@@ -155,7 +156,8 @@ BlockDefinition _definition(
   readOnlyRenderer: renderer,
   toolbarProvider: (block) => block.capabilities.toList(growable: false),
   commandHandler: _handleCommand,
-  selectionHandler: (context) => context.session.selectBlock(context.block.id),
+  selectionHandler: (context) =>
+      context.interaction.dispatch(SelectBlockIntent(context.block.id)),
   validationHandler: (block) {
     if (block.id.trim().isEmpty) {
       return 'El bloque no tiene UUID.';
@@ -178,10 +180,15 @@ void _handleCommand(BlockRenderContext context, String command) {
       block.supports(BlockCapability.duplicable)) {
     context.session.duplicateBlock(block.id);
   } else if (command == 'delete' && block.supports(BlockCapability.deletable)) {
+    context.interaction.dispatch(
+      const CancelInteractionIntent(
+        reason: InteractionCancellationReason.blockDeleted,
+      ),
+    );
     context.session.deleteBlock(block.id);
   } else if (command == 'select' &&
       block.supports(BlockCapability.selectable)) {
-    context.session.selectBlock(block.id);
+    context.interaction.dispatch(SelectBlockIntent(block.id));
   }
 }
 

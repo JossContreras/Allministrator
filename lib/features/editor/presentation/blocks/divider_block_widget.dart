@@ -13,64 +13,15 @@ class DividerBlockWidget extends StatelessWidget {
   @override
   Widget build(BuildContext context) => BlockFrame(
     block: block,
-    session: renderContext.session,
-    readOnly: renderContext.readOnly,
-    onTap: () => renderContext.session.selectBlock(block.id),
+    geometryRegistry: renderContext.geometryRegistry,
+    workspaceId: renderContext.session.workspace.id,
+    pageId: renderContext.session.page.id,
+    visualLayer: renderContext.visualLayer,
     child: Padding(
       padding: const EdgeInsets.symmetric(vertical: 12),
-      child: Column(
-        children: [
-          block.style == DividerStyle.solid
-              ? Divider(thickness: block.thickness)
-              : _DashedDivider(thickness: block.thickness),
-          if (renderContext.isSelected && !renderContext.readOnly)
-            Wrap(
-              alignment: WrapAlignment.center,
-              spacing: 8,
-              children: [
-                DropdownButton<DividerStyle>(
-                  value: block.style,
-                  items: const [
-                    DropdownMenuItem(
-                      value: DividerStyle.solid,
-                      child: Text('Sólido'),
-                    ),
-                    DropdownMenuItem(
-                      value: DividerStyle.dashed,
-                      child: Text('Discontinuo'),
-                    ),
-                  ],
-                  onChanged: (value) {
-                    if (value != null) {
-                      renderContext.onChanged(
-                        block.copyWith(style: value),
-                        kind: 'updateDivider',
-                        refreshPresentation: true,
-                      );
-                    }
-                  },
-                ),
-                DropdownButton<double>(
-                  value: block.thickness.clamp(1, 3),
-                  items: const [
-                    DropdownMenuItem(value: 1, child: Text('1 px')),
-                    DropdownMenuItem(value: 2, child: Text('2 px')),
-                    DropdownMenuItem(value: 3, child: Text('3 px')),
-                  ],
-                  onChanged: (value) {
-                    if (value != null) {
-                      renderContext.onChanged(
-                        block.copyWith(thickness: value),
-                        kind: 'updateDivider',
-                        refreshPresentation: true,
-                      );
-                    }
-                  },
-                ),
-              ],
-            ),
-        ],
-      ),
+      child: block.style == DividerStyle.solid
+          ? Divider(thickness: block.thickness)
+          : _DashedDivider(thickness: block.thickness),
     ),
   );
 }

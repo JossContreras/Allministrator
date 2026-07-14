@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:allministrator/domain/blocks/blocks.dart';
+import 'package:allministrator/domain/interaction/interaction.dart';
 import 'package:allministrator/features/editor/presentation/blocks/block_frame.dart';
 import 'package:allministrator/features/editor/presentation/blocks/block_render_context.dart';
 import 'package:flutter/material.dart';
@@ -28,9 +29,10 @@ class ImageBlockWidget extends StatelessWidget {
     };
     return BlockFrame(
       block: block,
-      session: renderContext.session,
-      readOnly: renderContext.readOnly,
-      onTap: () => renderContext.session.selectBlock(block.id),
+      geometryRegistry: renderContext.geometryRegistry,
+      workspaceId: renderContext.session.workspace.id,
+      pageId: renderContext.session.page.id,
+      visualLayer: renderContext.visualLayer,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -38,7 +40,26 @@ class ImageBlockWidget extends StatelessWidget {
             alignment: alignment,
             child: ConstrainedBox(
               constraints: BoxConstraints(maxWidth: maxWidth, maxHeight: 560),
-              child: _content(context, path),
+              child: renderContext.region(
+                id: 'image',
+                target: CustomRegionHitTarget(block.id, name: 'image'),
+                priority: 20,
+                child: GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: renderContext.readOnly
+                      ? null
+                      : () {
+                          if (!renderContext.isSelected) {
+                            renderContext.interaction.dispatch(
+                              SelectBlockIntent(block.id),
+                            );
+                            return;
+                          }
+                          _openPreview(context, path);
+                        },
+                  child: _content(context, path),
+                ),
+              ),
             ),
           ),
           if (block.caption?.trim().isNotEmpty == true)
@@ -52,8 +73,6 @@ class ImageBlockWidget extends StatelessWidget {
                 ).textTheme.bodySmall?.copyWith(fontStyle: FontStyle.italic),
               ),
             ),
-          if (renderContext.isSelected && !renderContext.readOnly)
-            _ImageOptions(renderContext: renderContext),
         ],
       ),
     );
@@ -101,10 +120,31 @@ class ImageBlockWidget extends StatelessWidget {
       ),
     );
   }
+
+  Future<void> _openPreview(BuildContext context, String? path) async {
+    if (path == null || !File(path).existsSync()) return;
+    renderContext.interaction.dispatch(
+      OpenContextMenuIntent(blockId: block.id),
+    );
+    await showDialog<void>(
+      context: context,
+      builder: (context) => Dialog(
+        child: InteractiveViewer(
+          child: Image.file(File(path), fit: BoxFit.contain),
+        ),
+      ),
+    );
+    renderContext.interaction.dispatch(
+      const CancelInteractionIntent(
+        reason: InteractionCancellationReason.dialogClosed,
+        keepBlockSelected: true,
+      ),
+    );
+  }
 }
 
-class _ImageOptions extends StatelessWidget {
-  const _ImageOptions({required this.renderContext});
+class ImageBlockOptions extends StatelessWidget {
+  const ImageBlockOptions({required this.renderContext, super.key});
 
   final BlockRenderContext renderContext;
 
@@ -182,6 +222,9 @@ class _ImageOptions extends StatelessWidget {
   );
 
   Future<void> _editDescription(BuildContext context) async {
+    renderContext.interaction.dispatch(
+      OpenContextMenuIntent(blockId: block.id),
+    );
     final alt = TextEditingController(text: block.altText);
     final caption = TextEditingController(text: block.caption);
     final accepted = await showDialog<bool>(
@@ -225,6 +268,12 @@ class _ImageOptions extends StatelessWidget {
         refreshPresentation: true,
       );
     }
+    renderContext.interaction.dispatch(
+      const CancelInteractionIntent(
+        reason: InteractionCancellationReason.dialogClosed,
+        keepBlockSelected: true,
+      ),
+    );
     alt.dispose();
     caption.dispose();
   }

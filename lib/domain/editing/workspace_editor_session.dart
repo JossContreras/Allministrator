@@ -21,13 +21,8 @@ class WorkspaceEditorSession extends ChangeNotifier {
   final WorkspaceChanged onChanged;
   final int maxOperations;
   final ValueNotifier<int> presentationRevision = ValueNotifier(0);
-  final ValueNotifier<int> selectionRevision = ValueNotifier(0);
   final List<_WorkspaceEdit> _undoStack = [];
   final List<_WorkspaceEdit> _redoStack = [];
-  final Map<Uuid, BlockTextSelection> _textSelections = {};
-
-  Uuid? selectedBlockId;
-  Uuid? editingBlockId;
 
   Workspace get workspace => _workspace;
   WorkspacePage get page => _workspace.primaryPage;
@@ -35,49 +30,12 @@ class WorkspaceEditorSession extends ChangeNotifier {
   bool get canUndo => _undoStack.isNotEmpty;
   bool get canRedo => _redoStack.isNotEmpty;
 
-  BaseBlock? get selectedBlock {
-    final id = selectedBlockId;
+  BaseBlock? blockById(Uuid? id) {
     if (id == null) return null;
     for (final block in blocks) {
       if (block.id == id) return block;
     }
     return null;
-  }
-
-  BlockTextSelection? selectionFor(String blockId) => _textSelections[blockId];
-
-  void updateTextSelection(String blockId, BlockTextSelection selection) {
-    final previous = _textSelections[blockId];
-    _textSelections[blockId] = selection;
-    if (previous?.baseOffset != selection.baseOffset ||
-        previous?.extentOffset != selection.extentOffset) {
-      selectionRevision.value++;
-    }
-  }
-
-  void selectBlock(String? blockId, {bool beginEditing = false}) {
-    if (selectedBlockId == blockId &&
-        (!beginEditing || editingBlockId == blockId)) {
-      return;
-    }
-    selectedBlockId = blockId;
-    editingBlockId = beginEditing ? blockId : null;
-    selectionRevision.value++;
-    _refreshPresentation();
-  }
-
-  void beginEditing(String blockId) {
-    selectedBlockId = blockId;
-    editingBlockId = blockId;
-    selectionRevision.value++;
-    _refreshPresentation();
-  }
-
-  void endEditing() {
-    if (editingBlockId == null) return;
-    editingBlockId = null;
-    selectionRevision.value++;
-    _refreshPresentation();
   }
 
   void updateBlock(
@@ -106,24 +64,27 @@ class WorkspaceEditorSession extends ChangeNotifier {
     );
   }
 
-  void insertBlock(BaseBlock block) {
+  void insertBlock(
+    BaseBlock block, {
+    Uuid? activeBlockId,
+    BlockTextSelection? textSelection,
+  }) {
     final ordered = blocks;
     final selectedIndex = ordered.indexWhere(
-      (candidate) => candidate.id == selectedBlockId,
+      (candidate) => candidate.id == activeBlockId,
     );
     final selected = selectedIndex < 0 ? null : ordered[selectedIndex];
     final now = DateTime.now().toUtc();
     late List<BaseBlock> next;
 
     if (selected is TextBlock) {
-      final storedSelection = _textSelections[selected.id];
       final fallback =
           selected.selection ??
           BlockTextSelection(
             baseOffset: selected.plainText.length,
             extentOffset: selected.plainText.length,
           );
-      final selection = storedSelection ?? fallback;
+      final selection = textSelection ?? fallback;
       final start = math.min(selection.baseOffset, selection.extentOffset);
       final end = math.max(selection.baseOffset, selection.extentOffset);
       var source = selected;
@@ -152,26 +113,12 @@ class WorkspaceEditorSession extends ChangeNotifier {
     }
 
     next = _normalizeOrder(next, now);
-    selectedBlockId = block.id;
-    editingBlockId = block is TextBlock ? block.id : null;
-    if (block is TextBlock) {
-      _textSelections[block.id] = const BlockTextSelection(
-        baseOffset: 0,
-        extentOffset: 0,
-      );
-    }
     _commit(
       _replaceBlocks(next, now: now),
       kind: 'insertBlock',
       blockId: block.id,
       refreshPresentation: true,
     );
-  }
-
-  void deleteSelectedBlock() {
-    final id = selectedBlockId;
-    if (id == null) return;
-    deleteBlock(id);
   }
 
   void deleteBlock(String blockId) {
@@ -196,11 +143,6 @@ class WorkspaceEditorSession extends ChangeNotifier {
       next.add(_emptyTextBlock(orderKey: 0, now: now));
     }
     final normalized = _normalizeOrder(next, now);
-    final selectedIndex = index.clamp(0, normalized.length - 1);
-    selectedBlockId = normalized[selectedIndex].id;
-    editingBlockId = normalized[selectedIndex] is TextBlock
-        ? normalized[selectedIndex].id
-        : null;
     _commit(
       _replaceBlocks(normalized, now: now),
       kind: 'deleteBlock',
@@ -209,25 +151,24 @@ class WorkspaceEditorSession extends ChangeNotifier {
     );
   }
 
-  void duplicateBlock(String blockId) {
+  Uuid? duplicateBlock(String blockId) {
     final ordered = blocks;
     final index = ordered.indexWhere((block) => block.id == blockId);
     if (index < 0 || !ordered[index].supports(BlockCapability.duplicable)) {
-      return;
+      return null;
     }
     final json = _replaceIds(ordered[index].toJson()) as JsonMap;
     final clone = BlockCodec.fromJson(json);
     final now = DateTime.now().toUtc();
     final next = [...ordered]..insert(index + 1, clone);
     final normalized = _normalizeOrder(next, now);
-    selectedBlockId = clone.id;
-    editingBlockId = null;
     _commit(
       _replaceBlocks(normalized, now: now),
       kind: 'duplicateBlock',
       blockId: clone.id,
       refreshPresentation: true,
     );
+    return clone.id;
   }
 
   void moveBlock(String blockId, int delta) {
@@ -269,8 +210,6 @@ class WorkspaceEditorSession extends ChangeNotifier {
     );
     final now = DateTime.now().toUtc();
     final next = [...ordered]..replaceRange(index, index + 2, [merged]);
-    selectedBlockId = merged.id;
-    editingBlockId = merged.id;
     _commit(
       _replaceBlocks(_normalizeOrder(next, now), now: now),
       kind: 'mergeTextBlock',
@@ -279,11 +218,15 @@ class WorkspaceEditorSession extends ChangeNotifier {
     );
   }
 
-  void applyTextFormat(String attribute, Object? value) {
-    final selected = selectedBlock;
+  void applyTextFormat(
+    Uuid blockId,
+    BlockTextSelection selection,
+    String attribute,
+    Object? value,
+  ) {
+    final selected = blockById(blockId);
     if (selected is! TextBlock || selected.isLocked) return;
-    final selection = _textSelections[selected.id] ?? selected.selection;
-    if (selection == null || selection.baseOffset == selection.extentOffset) {
+    if (selection.baseOffset == selection.extentOffset) {
       return;
     }
     final document = StructuredDocument(
@@ -311,11 +254,15 @@ class WorkspaceEditorSession extends ChangeNotifier {
     );
   }
 
-  bool textFormatActive(String attribute, Object? value) {
-    final selected = selectedBlock;
+  bool textFormatActive(
+    Uuid blockId,
+    BlockTextSelection selection,
+    String attribute,
+    Object? value,
+  ) {
+    final selected = blockById(blockId);
     if (selected is! TextBlock) return false;
-    final selection = _textSelections[selected.id] ?? selected.selection;
-    if (selection == null || selection.baseOffset == selection.extentOffset) {
+    if (selection.baseOffset == selection.extentOffset) {
       return false;
     }
     final document = StructuredDocument(
@@ -333,13 +280,12 @@ class WorkspaceEditorSession extends ChangeNotifier {
     );
   }
 
-  String get currentParagraphAlignment {
-    final selected = selectedBlock;
+  String currentParagraphAlignmentFor(
+    Uuid blockId,
+    BlockTextSelection selection,
+  ) {
+    final selected = blockById(blockId);
     if (selected is! TextBlock || selected.paragraphs.isEmpty) return 'left';
-    final selection = _textSelections[selected.id] ?? selected.selection;
-    if (selection == null) {
-      return selected.paragraphs.first.attributes.alignment;
-    }
     var consumed = 0;
     for (final paragraph in selected.paragraphs) {
       if (selection.baseOffset <= consumed + paragraph.text.length) {
@@ -350,11 +296,13 @@ class WorkspaceEditorSession extends ChangeNotifier {
     return selected.paragraphs.last.attributes.alignment;
   }
 
-  void applyParagraphAlignment(String alignment) {
-    final selected = selectedBlock;
+  void applyParagraphAlignment(
+    Uuid blockId,
+    BlockTextSelection selection,
+    String alignment,
+  ) {
+    final selected = blockById(blockId);
     if (selected is! TextBlock || selected.isLocked) return;
-    final selection = _textSelections[selected.id] ?? selected.selection;
-    if (selection == null) return;
     final document = StructuredDocument(
       nodes: selected.paragraphs
           .map((paragraph) => paragraph.toLegacy())
@@ -386,8 +334,6 @@ class WorkspaceEditorSession extends ChangeNotifier {
     final edit = _undoStack.removeLast();
     _workspace = edit.before;
     _redoStack.add(edit);
-    selectedBlockId = edit.selectionBefore;
-    editingBlockId = null;
     onChanged(_workspace);
     notifyListeners();
     _refreshPresentation();
@@ -398,8 +344,6 @@ class WorkspaceEditorSession extends ChangeNotifier {
     final edit = _redoStack.removeLast();
     _workspace = edit.after;
     _undoStack.add(edit);
-    selectedBlockId = edit.selectionAfter;
-    editingBlockId = null;
     onChanged(_workspace);
     notifyListeners();
     _refreshPresentation();
@@ -418,8 +362,6 @@ class WorkspaceEditorSession extends ChangeNotifier {
       after: next,
       kind: kind,
       blockId: blockId,
-      selectionBefore: selectedBlockId,
-      selectionAfter: selectedBlockId,
       timestamp: now,
       mergeable: mergeable,
     );
@@ -593,7 +535,6 @@ class WorkspaceEditorSession extends ChangeNotifier {
   @override
   void dispose() {
     presentationRevision.dispose();
-    selectionRevision.dispose();
     super.dispose();
   }
 }
@@ -604,8 +545,6 @@ class _WorkspaceEdit {
     required this.after,
     required this.kind,
     required this.blockId,
-    required this.selectionBefore,
-    required this.selectionAfter,
     required this.timestamp,
     required this.mergeable,
   });
@@ -614,8 +553,6 @@ class _WorkspaceEdit {
   final Workspace after;
   final String kind;
   final String blockId;
-  final String? selectionBefore;
-  final String? selectionAfter;
   final DateTime timestamp;
   final bool mergeable;
 
@@ -631,8 +568,6 @@ class _WorkspaceEdit {
     after: other.after,
     kind: kind,
     blockId: blockId,
-    selectionBefore: selectionBefore,
-    selectionAfter: other.selectionAfter,
     timestamp: other.timestamp,
     mergeable: true,
   );
