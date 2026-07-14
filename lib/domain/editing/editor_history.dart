@@ -110,6 +110,46 @@ class FormatTextCommand extends SnapshotEditCommand {
   }) : super(kind: 'formatText', mergeable: false);
 }
 
+class InsertNodeCommand extends SnapshotEditCommand {
+  InsertNodeCommand({
+    required super.before,
+    required super.after,
+    required super.selectionBefore,
+    required super.selectionAfter,
+    super.timestamp,
+  }) : super(kind: 'insertNode', mergeable: false);
+}
+
+class RemoveNodeCommand extends SnapshotEditCommand {
+  RemoveNodeCommand({
+    required super.before,
+    required super.after,
+    required super.selectionBefore,
+    required super.selectionAfter,
+    super.timestamp,
+  }) : super(kind: 'removeNode', mergeable: false);
+}
+
+class UpdateNodeCommand extends SnapshotEditCommand {
+  UpdateNodeCommand({
+    required super.before,
+    required super.after,
+    required super.selectionBefore,
+    required super.selectionAfter,
+    super.timestamp,
+  }) : super(kind: 'updateNode', mergeable: false);
+}
+
+class MoveNodeCommand extends SnapshotEditCommand {
+  MoveNodeCommand({
+    required super.before,
+    required super.after,
+    required super.selectionBefore,
+    required super.selectionAfter,
+    super.timestamp,
+  }) : super(kind: 'moveNode', mergeable: false);
+}
+
 class SplitParagraphCommand extends SnapshotEditCommand {
   SplitParagraphCommand({
     required super.before,

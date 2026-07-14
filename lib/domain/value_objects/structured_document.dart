@@ -3,6 +3,84 @@ import 'package:allministrator/core/utils/uuid_generator.dart';
 
 enum DocumentAffinity { upstream, downstream }
 
+enum DocumentNodeType {
+  paragraph,
+  image,
+  divider,
+  checklist,
+  quote,
+  callout,
+  code,
+  codeBlock,
+  table,
+  attachment,
+  audio,
+  video,
+  drawing,
+}
+
+enum ChecklistStyle { checkbox, task, compact }
+
+enum QuoteStyle { standard, large, pullQuote }
+
+enum CalloutType { info, tip, warning, success, error, note }
+
+class ChecklistItem {
+  const ChecklistItem({
+    required this.id,
+    required this.text,
+    this.isChecked = false,
+    this.indentLevel = 0,
+    this.spans = const [],
+    this.metadata,
+  });
+  final Uuid id;
+  final String text;
+  final bool isChecked;
+  final int indentLevel;
+  final List<TextSpanMark> spans;
+  final Map<String, Object?>? metadata;
+  ChecklistItem copyWith({
+    String? text,
+    bool? isChecked,
+    int? indentLevel,
+    List<TextSpanMark>? spans,
+    Map<String, Object?>? metadata,
+  }) => ChecklistItem(
+    id: id,
+    text: text ?? this.text,
+    isChecked: isChecked ?? this.isChecked,
+    indentLevel: (indentLevel ?? this.indentLevel).clamp(0, 6),
+    spans: spans ?? this.spans,
+    metadata: metadata ?? this.metadata,
+  );
+  Map<String, Object?> toJson() => {
+    'id': id,
+    'text': text,
+    'isChecked': isChecked,
+    'indentLevel': indentLevel,
+    'spans': spans.map((e) => e.toJson()).toList(growable: false),
+    'metadata': metadata ?? const <String, Object?>{},
+  };
+  factory ChecklistItem.fromJson(Object? value) {
+    final m = value is Map
+        ? Map<String, Object?>.from(value)
+        : const <String, Object?>{};
+    return ChecklistItem(
+      id: m['id'] as String? ?? generateUuid(),
+      text: m['text'] as String? ?? '',
+      isChecked: m['isChecked'] as bool? ?? false,
+      indentLevel: ((m['indentLevel'] as num?)?.toInt() ?? 0).clamp(0, 6),
+      spans: m['spans'] is List
+          ? (m['spans'] as List).map(TextSpanMark.fromJson).toList()
+          : const [],
+      metadata: m['metadata'] is Map
+          ? Map<String, Object?>.from(m['metadata'] as Map)
+          : null,
+    );
+  }
+}
+
 class ParagraphAttributes {
   const ParagraphAttributes({
     this.alignment = 'left',
@@ -82,14 +160,404 @@ sealed class DocumentNode {
         ? Map<String, Object?>.from(value)
         : const <String, Object?>{};
     if (map['type'] == 'paragraph') return ParagraphNode.fromJson(map);
-    return ParagraphNode(
+    if (map['type'] == 'image') {
+      return ImageNode.fromJson(map);
+    }
+    if (map['type'] == 'divider') {
+      return DividerNode.fromJson(map);
+    }
+    if (map['type'] == 'checklist') {
+      return ChecklistNode.fromJson(map);
+    }
+    if (map['type'] == 'quote') {
+      return QuoteNode.fromJson(map);
+    }
+    if (map['type'] == 'callout') {
+      return CalloutNode.fromJson(map);
+    }
+    if (map['type'] == 'code' || map['type'] == 'codeBlock') {
+      return CodeBlockNode.fromJson(map);
+    }
+    return UnknownNode(
       id: map['id'] as String? ?? generateUuid(),
-      text: '',
-      metadata: map['metadata'] is Map
-          ? Map<String, Object?>.from(map['metadata'] as Map)
-          : null,
+      unknownType: map['type'] as String? ?? 'unknown',
+      raw: map,
     );
   }
+}
+
+enum NodeAlignment { left, center, right }
+
+class ImageNode extends DocumentNode {
+  const ImageNode({
+    required super.id,
+    required this.attachmentId,
+    this.altText,
+    this.caption,
+    this.alignment = NodeAlignment.center,
+    this.displayWidth,
+    this.aspectRatio,
+    this.originalWidth,
+    this.originalHeight,
+    this.createdAt,
+    super.metadata,
+  });
+  final String attachmentId;
+  final String? altText, caption;
+  final NodeAlignment alignment;
+  final double? displayWidth, aspectRatio;
+  final int? originalWidth, originalHeight;
+  final DateTime? createdAt;
+  @override
+  String get type => DocumentNodeType.image.name;
+  ImageNode copyWith({
+    String? attachmentId,
+    String? altText,
+    String? caption,
+    NodeAlignment? alignment,
+    double? displayWidth,
+    double? aspectRatio,
+    int? originalWidth,
+    int? originalHeight,
+    Map<String, Object?>? metadata,
+  }) => ImageNode(
+    id: id,
+    attachmentId: attachmentId ?? this.attachmentId,
+    altText: altText ?? this.altText,
+    caption: caption ?? this.caption,
+    alignment: alignment ?? this.alignment,
+    displayWidth: displayWidth ?? this.displayWidth,
+    aspectRatio: aspectRatio ?? this.aspectRatio,
+    originalWidth: originalWidth ?? this.originalWidth,
+    originalHeight: originalHeight ?? this.originalHeight,
+    createdAt: createdAt,
+    metadata: metadata ?? this.metadata,
+  );
+  @override
+  Map<String, Object?> toJson() => {
+    'id': id,
+    'type': type,
+    'attachmentId': attachmentId,
+    'altText': altText,
+    'caption': caption,
+    'alignment': alignment.name,
+    'displayWidth': displayWidth,
+    'aspectRatio': aspectRatio,
+    'originalWidth': originalWidth,
+    'originalHeight': originalHeight,
+    'createdAt': createdAt?.toIso8601String(),
+    'metadata': metadata ?? const {},
+  };
+  factory ImageNode.fromJson(Map<String, Object?> map) => ImageNode(
+    id: map['id'] as String? ?? generateUuid(),
+    attachmentId: map['attachmentId'] as String? ?? '',
+    altText: map['altText'] as String?,
+    caption: map['caption'] as String?,
+    alignment: NodeAlignment.values.firstWhere(
+      (value) => value.name == map['alignment'],
+      orElse: () => NodeAlignment.center,
+    ),
+    displayWidth: (map['displayWidth'] as num?)?.toDouble(),
+    aspectRatio: (map['aspectRatio'] as num?)?.toDouble(),
+    originalWidth: (map['originalWidth'] as num?)?.toInt(),
+    originalHeight: (map['originalHeight'] as num?)?.toInt(),
+    createdAt: DateTime.tryParse(map['createdAt'] as String? ?? ''),
+    metadata: map['metadata'] is Map
+        ? Map<String, Object?>.from(map['metadata'] as Map)
+        : null,
+  );
+}
+
+class DividerNode extends DocumentNode {
+  const DividerNode({
+    required super.id,
+    this.style = 'solid',
+    this.thickness = 1,
+    this.widthFactor = 1,
+    this.alignment = NodeAlignment.center,
+    super.metadata,
+  });
+  final String style;
+  final double thickness, widthFactor;
+  final NodeAlignment alignment;
+  @override
+  String get type => DocumentNodeType.divider.name;
+  DividerNode copyWith({
+    String? style,
+    double? thickness,
+    double? widthFactor,
+    NodeAlignment? alignment,
+  }) => DividerNode(
+    id: id,
+    style: style ?? this.style,
+    thickness: thickness ?? this.thickness,
+    widthFactor: widthFactor ?? this.widthFactor,
+    alignment: alignment ?? this.alignment,
+    metadata: metadata,
+  );
+  @override
+  Map<String, Object?> toJson() => {
+    'id': id,
+    'type': type,
+    'style': style,
+    'thickness': thickness,
+    'widthFactor': widthFactor,
+    'alignment': alignment.name,
+    'metadata': metadata ?? const {},
+  };
+  factory DividerNode.fromJson(Map<String, Object?> map) => DividerNode(
+    id: map['id'] as String? ?? generateUuid(),
+    style: map['style'] as String? ?? 'solid',
+    thickness: (map['thickness'] as num?)?.toDouble() ?? 1,
+    widthFactor: (map['widthFactor'] as num?)?.toDouble() ?? 1,
+    alignment: NodeAlignment.values.firstWhere(
+      (value) => value.name == map['alignment'],
+      orElse: () => NodeAlignment.center,
+    ),
+    metadata: map['metadata'] is Map
+        ? Map<String, Object?>.from(map['metadata'] as Map)
+        : null,
+  );
+}
+
+class ChecklistNode extends DocumentNode {
+  const ChecklistNode({
+    required super.id,
+    this.items = const [],
+    this.style = ChecklistStyle.checkbox,
+    super.metadata,
+  });
+  final List<ChecklistItem> items;
+  final ChecklistStyle style;
+  @override
+  String get type => DocumentNodeType.checklist.name;
+  ChecklistNode copyWith({List<ChecklistItem>? items, ChecklistStyle? style}) =>
+      ChecklistNode(
+        id: id,
+        items: items ?? this.items,
+        style: style ?? this.style,
+        metadata: metadata,
+      );
+  @override
+  Map<String, Object?> toJson() => {
+    'id': id,
+    'type': type,
+    'items': items.map((e) => e.toJson()).toList(growable: false),
+    'style': style.name,
+    'metadata': metadata ?? const <String, Object?>{},
+  };
+  factory ChecklistNode.fromJson(Map<String, Object?> m) => ChecklistNode(
+    id: m['id'] as String? ?? generateUuid(),
+    items: m['items'] is List && (m['items'] as List).isNotEmpty
+        ? (m['items'] as List).map(ChecklistItem.fromJson).toList()
+        : [ChecklistItem(id: generateUuid(), text: '')],
+    style: ChecklistStyle.values.firstWhere(
+      (e) => e.name == m['style'],
+      orElse: () => ChecklistStyle.checkbox,
+    ),
+    metadata: m['metadata'] is Map
+        ? Map<String, Object?>.from(m['metadata'] as Map)
+        : null,
+  );
+}
+
+class QuoteNode extends DocumentNode {
+  const QuoteNode({
+    required super.id,
+    this.text = '',
+    this.spans = const [],
+    this.citation,
+    this.style = QuoteStyle.standard,
+    super.metadata,
+  });
+  final String text;
+  final List<TextSpanMark> spans;
+  final String? citation;
+  final QuoteStyle style;
+  @override
+  String get type => DocumentNodeType.quote.name;
+  QuoteNode copyWith({
+    String? text,
+    List<TextSpanMark>? spans,
+    String? citation,
+    QuoteStyle? style,
+  }) => QuoteNode(
+    id: id,
+    text: text ?? this.text,
+    spans: spans ?? this.spans,
+    citation: citation ?? this.citation,
+    style: style ?? this.style,
+    metadata: metadata,
+  );
+  @override
+  Map<String, Object?> toJson() => {
+    'id': id,
+    'type': type,
+    'text': text,
+    'spans': spans.map((e) => e.toJson()).toList(growable: false),
+    'citation': citation,
+    'style': style.name,
+    'metadata': metadata ?? const <String, Object?>{},
+  };
+  factory QuoteNode.fromJson(Map<String, Object?> m) => QuoteNode(
+    id: m['id'] as String? ?? generateUuid(),
+    text: m['text'] as String? ?? '',
+    spans: m['spans'] is List
+        ? (m['spans'] as List).map(TextSpanMark.fromJson).toList()
+        : const [],
+    citation: m['citation'] as String?,
+    style: QuoteStyle.values.firstWhere(
+      (e) => e.name == m['style'],
+      orElse: () => QuoteStyle.standard,
+    ),
+    metadata: m['metadata'] is Map
+        ? Map<String, Object?>.from(m['metadata'] as Map)
+        : null,
+  );
+}
+
+class CalloutNode extends DocumentNode {
+  const CalloutNode({
+    required super.id,
+    this.title,
+    this.text = '',
+    this.spans = const [],
+    this.calloutType = CalloutType.info,
+    this.iconId,
+    this.colorId,
+    super.metadata,
+  });
+  final String? title;
+  final String text;
+  final List<TextSpanMark> spans;
+  final CalloutType calloutType;
+  final String? iconId;
+  final String? colorId;
+  @override
+  String get type => DocumentNodeType.callout.name;
+  CalloutNode copyWith({
+    String? title,
+    String? text,
+    List<TextSpanMark>? spans,
+    CalloutType? calloutType,
+    String? iconId,
+    String? colorId,
+  }) => CalloutNode(
+    id: id,
+    title: title ?? this.title,
+    text: text ?? this.text,
+    spans: spans ?? this.spans,
+    calloutType: calloutType ?? this.calloutType,
+    iconId: iconId ?? this.iconId,
+    colorId: colorId ?? this.colorId,
+    metadata: metadata,
+  );
+  @override
+  Map<String, Object?> toJson() => {
+    'id': id,
+    'type': type,
+    'title': title,
+    'text': text,
+    'spans': spans.map((e) => e.toJson()).toList(growable: false),
+    'calloutType': calloutType.name,
+    'iconId': iconId,
+    'colorId': colorId,
+    'metadata': metadata ?? const <String, Object?>{},
+  };
+  factory CalloutNode.fromJson(Map<String, Object?> m) => CalloutNode(
+    id: m['id'] as String? ?? generateUuid(),
+    title: m['title'] as String?,
+    text: m['text'] as String? ?? '',
+    spans: m['spans'] is List
+        ? (m['spans'] as List).map(TextSpanMark.fromJson).toList()
+        : const [],
+    calloutType: CalloutType.values.firstWhere(
+      (e) => e.name == (m['calloutType'] ?? m['typeValue']),
+      orElse: () => CalloutType.info,
+    ),
+    iconId: m['iconId'] as String?,
+    colorId: m['colorId'] as String?,
+    metadata: m['metadata'] is Map
+        ? Map<String, Object?>.from(m['metadata'] as Map)
+        : null,
+  );
+}
+
+class CodeBlockNode extends DocumentNode {
+  const CodeBlockNode({
+    required super.id,
+    this.code = '',
+    this.languageId = 'plainText',
+    this.themeId,
+    this.showLineNumbers = false,
+    this.wrapLines = true,
+    this.caption,
+    super.metadata,
+  });
+  final String code;
+  final String? languageId;
+  final String? themeId;
+  final bool showLineNumbers;
+  final bool wrapLines;
+  final String? caption;
+  @override
+  String get type => DocumentNodeType.codeBlock.name;
+  CodeBlockNode copyWith({
+    String? code,
+    String? languageId,
+    String? themeId,
+    bool? showLineNumbers,
+    bool? wrapLines,
+    String? caption,
+  }) => CodeBlockNode(
+    id: id,
+    code: code ?? this.code,
+    languageId: languageId ?? this.languageId,
+    themeId: themeId ?? this.themeId,
+    showLineNumbers: showLineNumbers ?? this.showLineNumbers,
+    wrapLines: wrapLines ?? this.wrapLines,
+    caption: caption ?? this.caption,
+    metadata: metadata,
+  );
+  @override
+  Map<String, Object?> toJson() => {
+    'id': id,
+    'type': type,
+    'code': code,
+    'languageId': languageId,
+    'themeId': themeId,
+    'showLineNumbers': showLineNumbers,
+    'wrapLines': wrapLines,
+    'caption': caption,
+    'metadata': metadata ?? const <String, Object?>{},
+  };
+  factory CodeBlockNode.fromJson(Map<String, Object?> m) => CodeBlockNode(
+    id: m['id'] as String? ?? generateUuid(),
+    code: m['code'] as String? ?? '',
+    languageId: m['languageId'] as String? ?? 'plainText',
+    themeId: m['themeId'] as String?,
+    showLineNumbers: m['showLineNumbers'] as bool? ?? false,
+    wrapLines: m['wrapLines'] as bool? ?? true,
+    caption: m['caption'] as String?,
+    metadata: m['metadata'] is Map
+        ? Map<String, Object?>.from(m['metadata'] as Map)
+        : null,
+  );
+}
+
+class UnknownNode extends DocumentNode {
+  const UnknownNode({
+    required super.id,
+    required this.unknownType,
+    required this.raw,
+    super.metadata,
+  });
+  final String unknownType;
+  final Map<String, Object?> raw;
+  @override
+  String get type => unknownType;
+  @override
+  Map<String, Object?> toJson() => raw;
 }
 
 class ParagraphNode extends DocumentNode {
@@ -185,11 +653,11 @@ class StructuredDocument {
       softBreakOffsets,
     );
     final existing = nodes.whereType<ParagraphNode>().toList();
-    final reused = <ParagraphNode>[];
+    final paragraphs = <ParagraphNode>[];
     for (var index = 0; index < next.nodes.length; index++) {
       final paragraph = next.nodes[index] as ParagraphNode;
       final previous = index < existing.length ? existing[index] : null;
-      reused.add(
+      paragraphs.add(
         paragraph.copyWith(
           id: previous?.id,
           attributes: previous?.attributes,
@@ -198,7 +666,19 @@ class StructuredDocument {
         ),
       );
     }
-    return StructuredDocument(nodes: reused, metadata: metadata).normalized();
+    var paragraphIndex = 0;
+    final merged = <DocumentNode>[];
+    for (final node in nodes) {
+      if (node is ParagraphNode && paragraphIndex < paragraphs.length) {
+        merged.add(paragraphs[paragraphIndex++]);
+      } else if (node is! ParagraphNode) {
+        merged.add(node);
+      }
+    }
+    while (paragraphIndex < paragraphs.length) {
+      merged.add(paragraphs[paragraphIndex++]);
+    }
+    return StructuredDocument(nodes: merged, metadata: metadata).normalized();
   }
 
   StructuredDocument applyFormat(
@@ -393,16 +873,61 @@ class StructuredDocument {
   String get plainText =>
       nodes.whereType<ParagraphNode>().map((node) => node.text).join('\n');
   StructuredDocument normalized() {
-    final paragraphs = nodes.whereType<ParagraphNode>().toList();
-    if (paragraphs.isEmpty) return StructuredDocument.empty();
+    final source = nodes.isEmpty
+        ? <DocumentNode>[ParagraphNode(id: generateUuid(), text: '')]
+        : nodes;
     final used = <String>{};
-    final safe = paragraphs.map((node) {
+    final safe = source.map((node) {
       var id = node.id;
       if (id.isEmpty || !used.add(id)) {
         do {
           id = generateUuid();
         } while (!used.add(id));
       }
+      if (node is ChecklistNode) {
+        final itemIds = <String>{};
+        final items = node.items.map((item) {
+          var itemId = item.id;
+          if (itemId.isEmpty || !itemIds.add(itemId)) {
+            do {
+              itemId = generateUuid();
+            } while (!itemIds.add(itemId));
+          }
+          final spans = item.spans
+              .where(
+                (s) =>
+                    s.start < s.end &&
+                    s.start >= 0 &&
+                    s.end <= item.text.length,
+              )
+              .toList();
+          return ChecklistItem(
+            id: itemId,
+            text: item.text,
+            isChecked: item.isChecked,
+            indentLevel: item.indentLevel,
+            spans: spans,
+            metadata: item.metadata,
+          );
+        }).toList();
+        return ChecklistNode(
+          id: id,
+          items: items.isEmpty
+              ? [ChecklistItem(id: generateUuid(), text: '')]
+              : items,
+          style: node.style,
+          metadata: node.metadata,
+        );
+      }
+      if (node is CodeBlockNode) {
+        return node.copyWith(
+          code: node.code,
+          languageId: _codeLanguages.contains(node.languageId)
+              ? node.languageId
+              : 'plainText',
+        );
+      }
+      if (node is! ParagraphNode) return node;
       final spans =
           node.spans
               .where(
@@ -418,6 +943,26 @@ class StructuredDocument {
     }).toList();
     return StructuredDocument(nodes: safe, metadata: metadata);
   }
+
+  static const _codeLanguages = <String>{
+    'plainText',
+    'dart',
+    'python',
+    'javascript',
+    'typescript',
+    'json',
+    'html',
+    'css',
+    'sql',
+    'java',
+    'kotlin',
+    'c',
+    'cpp',
+    'csharp',
+    'bash',
+    'yaml',
+    'markdown',
+  };
 }
 
 class DocumentPosition {
@@ -517,6 +1062,186 @@ class DocumentEditingEngine {
 
   EditingResult applyParagraphAttributes(String attribute, Object? value) {
     document = document.setParagraphAttribute(selection, attribute, value);
+    return EditingResult(document, selection);
+  }
+
+  EditingResult insertNode(DocumentNode node) {
+    final position = _position(selection.anchor);
+    final paragraph = _paragraph(position.index);
+    final offset = position.offset.clamp(0, paragraph.text.length);
+    final before = paragraph.copyWith(
+      text: paragraph.text.substring(0, offset),
+    );
+    final after = ParagraphNode(
+      id: generateUuid(),
+      text: paragraph.text.substring(offset),
+      attributes: paragraph.attributes,
+    );
+    final list = [...document.nodes]
+      ..replaceRange(position.index, position.index + 1, [before, node, after]);
+    document = StructuredDocument(
+      nodes: list,
+      metadata: document.metadata,
+    ).normalized();
+    selection = DocumentSelection.collapsed(
+      DocumentPosition(nodeId: after.id, offset: 0),
+    );
+    return EditingResult(document, selection);
+  }
+
+  EditingResult insertImage(ImageNode node) => insertNode(node);
+  EditingResult insertDivider(DividerNode node) => insertNode(node);
+
+  EditingResult updateChecklistItem(
+    String nodeId,
+    String itemId, {
+    String? text,
+    bool? isChecked,
+    int? indentLevel,
+  }) {
+    final index = document.nodes.indexWhere((n) => n.id == nodeId);
+    if (index < 0 || document.nodes[index] is! ChecklistNode) {
+      return EditingResult(document, selection);
+    }
+    final node = document.nodes[index] as ChecklistNode;
+    final items = node.items
+        .map(
+          (item) => item.id == itemId
+              ? item.copyWith(
+                  text: text,
+                  isChecked: isChecked,
+                  indentLevel: indentLevel,
+                )
+              : item,
+        )
+        .toList();
+    return replaceNode(nodeId, node.copyWith(items: items));
+  }
+
+  EditingResult addChecklistItem(String nodeId, {int? afterIndex}) {
+    final index = document.nodes.indexWhere((n) => n.id == nodeId);
+    if (index < 0 || document.nodes[index] is! ChecklistNode) {
+      return EditingResult(document, selection);
+    }
+    final node = document.nodes[index] as ChecklistNode;
+    final items = [...node.items];
+    final at = ((afterIndex ?? items.length - 1) + 1).clamp(0, items.length);
+    items.insert(at, ChecklistItem(id: generateUuid(), text: ''));
+    return replaceNode(nodeId, node.copyWith(items: items));
+  }
+
+  EditingResult removeChecklistItem(String nodeId, String itemId) {
+    final index = document.nodes.indexWhere((n) => n.id == nodeId);
+    if (index < 0 || document.nodes[index] is! ChecklistNode) {
+      return EditingResult(document, selection);
+    }
+    final node = document.nodes[index] as ChecklistNode;
+    final items = node.items.where((item) => item.id != itemId).toList();
+    return replaceNode(
+      nodeId,
+      node.copyWith(
+        items: items.isEmpty
+            ? [ChecklistItem(id: generateUuid(), text: '')]
+            : items,
+      ),
+    );
+  }
+
+  EditingResult toggleChecklistItem(String nodeId, String itemId) {
+    final node = document.nodes.where((n) => n.id == nodeId).firstOrNull;
+    if (node is! ChecklistNode) return EditingResult(document, selection);
+    final item = node.items.where((i) => i.id == itemId).firstOrNull;
+    if (item == null) return EditingResult(document, selection);
+    return updateChecklistItem(nodeId, itemId, isChecked: !item.isChecked);
+  }
+
+  EditingResult convertNodeToParagraph(String nodeId) {
+    final index = document.nodes.indexWhere((n) => n.id == nodeId);
+    if (index < 0 || document.nodes[index] is ParagraphNode) {
+      return EditingResult(document, selection);
+    }
+    final node = document.nodes[index];
+    final texts = switch (node) {
+      ChecklistNode() =>
+        node.items
+            .map(
+              (i) => ParagraphNode(
+                id: generateUuid(),
+                text: i.text,
+                spans: i.spans,
+              ),
+            )
+            .toList(),
+      QuoteNode() => [
+        ParagraphNode(id: generateUuid(), text: node.text, spans: node.spans),
+      ],
+      CalloutNode() => [
+        ParagraphNode(id: generateUuid(), text: node.text, spans: node.spans),
+      ],
+      CodeBlockNode() =>
+        node.code
+            .split('\n')
+            .map((line) => ParagraphNode(id: generateUuid(), text: line))
+            .toList(),
+      _ => <ParagraphNode>[ParagraphNode(id: generateUuid(), text: '')],
+    };
+    final list = [...document.nodes]..replaceRange(index, index + 1, texts);
+    document = StructuredDocument(
+      nodes: list,
+      metadata: document.metadata,
+    ).normalized();
+    selection = DocumentSelection.collapsed(
+      DocumentPosition(nodeId: texts.first.id, offset: 0),
+    );
+    return EditingResult(document, selection);
+  }
+
+  EditingResult removeNode(String nodeId) {
+    final index = document.nodes.indexWhere((node) => node.id == nodeId);
+    if (index < 0 || document.nodes[index] is ParagraphNode) {
+      return EditingResult(document, selection);
+    }
+    final list = [...document.nodes]..removeAt(index);
+    if (!list.any((node) => node is ParagraphNode)) {
+      list.add(ParagraphNode(id: generateUuid(), text: ''));
+    }
+    document = StructuredDocument(
+      nodes: list,
+      metadata: document.metadata,
+    ).normalized();
+    final fallback = list.whereType<ParagraphNode>().first;
+    selection = DocumentSelection.collapsed(
+      DocumentPosition(nodeId: fallback.id, offset: 0),
+    );
+    return EditingResult(document, selection);
+  }
+
+  EditingResult replaceNode(String nodeId, DocumentNode replacement) {
+    final index = document.nodes.indexWhere((node) => node.id == nodeId);
+    if (index < 0 || document.nodes[index] is ParagraphNode) {
+      return EditingResult(document, selection);
+    }
+    final list = [...document.nodes]..[index] = replacement;
+    document = StructuredDocument(
+      nodes: list,
+      metadata: document.metadata,
+    ).normalized();
+    return EditingResult(document, selection);
+  }
+
+  EditingResult moveNode(String nodeId, int targetIndex) {
+    final index = document.nodes.indexWhere((node) => node.id == nodeId);
+    if (index < 0 || document.nodes[index] is ParagraphNode) {
+      return EditingResult(document, selection);
+    }
+    final list = [...document.nodes];
+    final node = list.removeAt(index);
+    final destination = targetIndex.clamp(0, list.length);
+    list.insert(destination, node);
+    document = StructuredDocument(
+      nodes: list,
+      metadata: document.metadata,
+    ).normalized();
     return EditingResult(document, selection);
   }
 

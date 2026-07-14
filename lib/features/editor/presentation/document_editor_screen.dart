@@ -13,6 +13,9 @@ import 'rich_text_editing_controller.dart';
 import 'smart_formatting_toolbar.dart';
 import 'package:allministrator/domain/editing/selection_controller.dart';
 import 'package:allministrator/domain/editing/formatting_controller.dart';
+import 'package:allministrator/features/editor/data/local_attachment_storage.dart';
+import 'package:allministrator/core/utils/uuid_generator.dart';
+import 'package:image_picker/image_picker.dart';
 
 class DocumentEditorScreen extends StatefulWidget {
   const DocumentEditorScreen({
@@ -49,6 +52,8 @@ class _DocumentEditorScreenState extends State<DocumentEditorScreen> {
   final _selectionController = SelectionController();
   late final ToolbarController _toolbarController = ToolbarController();
   FormattingController? _formattingController;
+  final _attachmentStorage = LocalAttachmentStorage();
+  final _imagePicker = ImagePicker();
 
   @override
   void initState() {
@@ -121,6 +126,13 @@ class _DocumentEditorScreenState extends State<DocumentEditorScreen> {
       _titleController.text = document.title;
       _contentController.text = document.content.text;
       _contentController.setDocument(document.content.structured);
+      for (final image
+          in document.content.structured.nodes.whereType<ImageNode>()) {
+        final path = await _attachmentStorage.resolvePath(image.attachmentId);
+        if (path != null) {
+          _contentController.attachmentPaths[image.attachmentId] = path;
+        }
+      }
       _lastVisibleText = _contentController.text;
       final structured = document.content.structured;
       _history = EditorHistoryController(
@@ -384,6 +396,62 @@ class _DocumentEditorScreenState extends State<DocumentEditorScreen> {
               : 'Documento sin título',
         ),
         actions: [
+          PopupMenuButton<String>(
+            tooltip: 'Insertar objeto',
+            icon: const Icon(Icons.add_box_outlined),
+            onSelected: (value) {
+              if (value == 'image') _insertImage();
+              if (value == 'divider') _insertDivider();
+              if (value == 'checklist') _insertChecklist();
+              if (value == 'quote') _insertQuote();
+              if (value == 'callout') _insertCallout();
+              if (value == 'code') _insertCode();
+            },
+            itemBuilder: (_) => const [
+              PopupMenuItem(
+                value: 'image',
+                child: ListTile(
+                  leading: Icon(Icons.image_outlined),
+                  title: Text('Imagen'),
+                ),
+              ),
+              PopupMenuItem(
+                value: 'divider',
+                child: ListTile(
+                  leading: Icon(Icons.horizontal_rule),
+                  title: Text('Separador'),
+                ),
+              ),
+              PopupMenuItem(
+                value: 'checklist',
+                child: ListTile(
+                  leading: Icon(Icons.check_box_outlined),
+                  title: Text('Checklist'),
+                ),
+              ),
+              PopupMenuItem(
+                value: 'quote',
+                child: ListTile(
+                  leading: Icon(Icons.format_quote),
+                  title: Text('Cita'),
+                ),
+              ),
+              PopupMenuItem(
+                value: 'callout',
+                child: ListTile(
+                  leading: Icon(Icons.info_outline),
+                  title: Text('Callout'),
+                ),
+              ),
+              PopupMenuItem(
+                value: 'code',
+                child: ListTile(
+                  leading: Icon(Icons.code),
+                  title: Text('Código'),
+                ),
+              ),
+            ],
+          ),
           if (_history != null)
             AnimatedBuilder(
               animation: _history!,
@@ -621,14 +689,144 @@ class _DocumentEditorScreenState extends State<DocumentEditorScreen> {
       (node) => node.id == history.current.selection.anchor.nodeId,
     );
     if (index < 0) return TextAlign.left;
-    return switch ((history.current.document.nodes[index] as ParagraphNode)
-        .attributes
-        .alignment) {
+    final selected = history.current.document.nodes[index];
+    if (selected is! ParagraphNode) return TextAlign.left;
+    return switch (selected.attributes.alignment) {
       'center' => TextAlign.center,
       'right' => TextAlign.right,
       'justify' => TextAlign.justify,
       _ => TextAlign.left,
     };
+  }
+
+  Future<void> _insertImage() async {
+    if (_history == null || _history!.current.selection.isCollapsed) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Coloca el cursor donde quieras insertar la imagen.'),
+          ),
+        );
+      }
+      return;
+    }
+    try {
+      final picked = await _imagePicker.pickImage(source: ImageSource.gallery);
+      if (picked == null || !mounted) return;
+      final stored = await _attachmentStorage.copyImage(picked);
+      final before = _history!.current;
+      final engine = DocumentEditingEngine(
+        before.document,
+        selection: before.selection,
+      );
+      final result = engine.insertImage(
+        ImageNode(
+          id: generateUuid(),
+          attachmentId: stored.id,
+          altText: stored.originalFileName,
+          createdAt: DateTime.now().toUtc(),
+        ),
+      );
+      final after = EditorState(
+        document: result.document,
+        selection: result.selection,
+      );
+      _history!.executeCommand(
+        InsertNodeCommand(
+          before: before,
+          after: after,
+          selectionBefore: before.selection,
+          selectionAfter: after.selection,
+        ),
+      );
+      _contentController.attachmentPaths[stored.id] = stored.localPath;
+      _applyingHistory = true;
+      _contentController.value = TextEditingValue(
+        text: after.document.plainText,
+        selection: _controllerSelection(after),
+      );
+      _contentController.setDocument(after.document);
+      _applyingHistory = false;
+      setState(() {});
+      _scheduleSave();
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('No se pudo insertar la imagen: $error')),
+        );
+      }
+    }
+  }
+
+  void _insertDivider() {
+    final history = _history;
+    if (history == null) return;
+    final before = history.current;
+    final engine = DocumentEditingEngine(
+      before.document,
+      selection: before.selection,
+    );
+    final result = engine.insertDivider(DividerNode(id: generateUuid()));
+    final after = EditorState(
+      document: result.document,
+      selection: result.selection,
+    );
+    history.executeCommand(
+      InsertNodeCommand(
+        before: before,
+        after: after,
+        selectionBefore: before.selection,
+        selectionAfter: after.selection,
+      ),
+    );
+    _applyingHistory = true;
+    _contentController.value = TextEditingValue(
+      text: after.document.plainText,
+      selection: _controllerSelection(after),
+    );
+    _contentController.setDocument(after.document);
+    _applyingHistory = false;
+    setState(() {});
+    _scheduleSave();
+  }
+
+  void _insertChecklist() =>
+      _insertStructuredNode(ChecklistNode(id: generateUuid()));
+  void _insertQuote() => _insertStructuredNode(QuoteNode(id: generateUuid()));
+  void _insertCallout() =>
+      _insertStructuredNode(CalloutNode(id: generateUuid(), title: 'Idea'));
+  void _insertCode() =>
+      _insertStructuredNode(CodeBlockNode(id: generateUuid()));
+
+  void _insertStructuredNode(DocumentNode node) {
+    final history = _history;
+    if (history == null) return;
+    final before = history.current;
+    final result = DocumentEditingEngine(
+      before.document,
+      selection: before.selection,
+    ).insertNode(node);
+    final after = EditorState(
+      document: result.document,
+      selection: result.selection,
+    );
+    history.executeCommand(
+      InsertNodeCommand(
+        before: before,
+        after: after,
+        selectionBefore: before.selection,
+        selectionAfter: after.selection,
+      ),
+    );
+    _applyingHistory = true;
+    _contentController.value = TextEditingValue(
+      text: after.document.plainText,
+      selection: _controllerSelection(after),
+    );
+    _contentController.setDocument(after.document);
+    _applyingHistory = false;
+    setState(() {});
+    _scheduleSave();
   }
 
   Future<void> _changeCategory(String categoryId) async {

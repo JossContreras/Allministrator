@@ -6,6 +6,7 @@ class RichTextEditingController extends TextEditingController {
   RichTextEditingController({super.text, StructuredDocument? document})
     : document = document ?? StructuredDocument.empty();
   StructuredDocument document;
+  final Map<String, String> attachmentPaths = {};
   final DocumentRenderer<InlineSpan> renderer = FlutterDocumentRenderer();
   void setDocument(StructuredDocument value) => document = value;
 
@@ -20,6 +21,7 @@ class RichTextEditingController extends TextEditingController {
       RenderConfiguration(
         style: style ?? DefaultTextStyle.of(context).style,
         withComposing: withComposing,
+        attachmentPath: (id) => attachmentPaths[id],
       ),
     );
     return rendered as TextSpan;

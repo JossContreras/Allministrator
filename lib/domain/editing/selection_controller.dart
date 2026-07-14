@@ -10,6 +10,13 @@ enum SelectionContext {
   code,
   drawing,
   attachment,
+  checklist,
+  checklistItem,
+  checklistTextSelection,
+  quote,
+  callout,
+  codeBlock,
+  embeddedTextSelection,
 }
 
 class SelectionFormattingState {
@@ -34,7 +41,28 @@ class SelectionController {
 
   void setSelection(DocumentSelection value, StructuredDocument document) {
     selection = normalize(value, document);
-    context = selection.isCollapsed
+    final node = document.nodes
+        .where((n) => n.id == selection.anchor.nodeId)
+        .firstOrNull;
+    context = node == null
+        ? SelectionContext.none
+        : node is ChecklistNode
+        ? (selection.isCollapsed
+              ? SelectionContext.checklistItem
+              : SelectionContext.checklistTextSelection)
+        : node is QuoteNode
+        ? (selection.isCollapsed
+              ? SelectionContext.quote
+              : SelectionContext.embeddedTextSelection)
+        : node is CalloutNode
+        ? (selection.isCollapsed
+              ? SelectionContext.callout
+              : SelectionContext.embeddedTextSelection)
+        : node is CodeBlockNode
+        ? (selection.isCollapsed
+              ? SelectionContext.codeBlock
+              : SelectionContext.embeddedTextSelection)
+        : selection.isCollapsed
         ? SelectionContext.textCursor
         : _isMultiParagraph(document)
         ? SelectionContext.multiParagraphText
@@ -73,10 +101,18 @@ class SelectionController {
     StructuredDocument document,
   ) {
     DocumentPosition safe(DocumentPosition position) {
-      final node = document.nodes.whereType<ParagraphNode>().firstWhere(
-        (item) => item.id == position.nodeId,
-        orElse: () => document.nodes.whereType<ParagraphNode>().first,
-      );
+      final node =
+          document.nodes
+              .where((item) => item.id == position.nodeId)
+              .firstOrNull ??
+          document.nodes.whereType<ParagraphNode>().first;
+      if (node is! ParagraphNode) {
+        return DocumentPosition(
+          nodeId: node.id,
+          offset: 0,
+          affinity: position.affinity,
+        );
+      }
       return DocumentPosition(
         nodeId: node.id,
         offset: position.offset.clamp(0, node.text.length),
