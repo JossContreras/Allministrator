@@ -9,6 +9,10 @@ import 'package:go_router/go_router.dart';
 import 'package:allministrator/features/documents/presentation/category_catalog.dart';
 import 'package:allministrator/domain/editing/editor_history.dart';
 import 'package:allministrator/domain/value_objects/structured_document.dart';
+import 'rich_text_editing_controller.dart';
+import 'smart_formatting_toolbar.dart';
+import 'package:allministrator/domain/editing/selection_controller.dart';
+import 'package:allministrator/domain/editing/formatting_controller.dart';
 
 class DocumentEditorScreen extends StatefulWidget {
   const DocumentEditorScreen({
@@ -26,7 +30,7 @@ class DocumentEditorScreen extends StatefulWidget {
 
 class _DocumentEditorScreenState extends State<DocumentEditorScreen> {
   final _titleController = TextEditingController();
-  final _contentController = TextEditingController();
+  final _contentController = RichTextEditingController();
   Timer? _saveTimer;
   Future<void> _saveQueue = Future<void>.value();
   Document? _document;
@@ -42,6 +46,9 @@ class _DocumentEditorScreenState extends State<DocumentEditorScreen> {
   String _lastVisibleText = '';
   EditorHistoryController? _history;
   bool _applyingHistory = false;
+  final _selectionController = SelectionController();
+  late final ToolbarController _toolbarController = ToolbarController();
+  FormattingController? _formattingController;
 
   @override
   void initState() {
@@ -77,6 +84,10 @@ class _DocumentEditorScreenState extends State<DocumentEditorScreen> {
       }
       return KeyEventResult.ignored;
     };
+    _contentFocusNode.addListener(() {
+      _toolbarController.setEditorFocus(_contentFocusNode.hasFocus);
+      if (mounted) setState(() {});
+    });
     _load();
     _titleController.addListener(_scheduleSave);
     _contentController.addListener(_scheduleSave);
@@ -109,6 +120,7 @@ class _DocumentEditorScreenState extends State<DocumentEditorScreen> {
       _document = document;
       _titleController.text = document.title;
       _contentController.text = document.content.text;
+      _contentController.setDocument(document.content.structured);
       _lastVisibleText = _contentController.text;
       final structured = document.content.structured;
       _history = EditorHistoryController(
@@ -118,6 +130,14 @@ class _DocumentEditorScreenState extends State<DocumentEditorScreen> {
             DocumentPosition(nodeId: structured.nodes.first.id, offset: 0),
           ),
         ),
+      );
+      _selectionController.setSelection(
+        _history!.current.selection,
+        structured,
+      );
+      _formattingController = FormattingController(
+        _history!,
+        _selectionController,
       );
       setState(() => _loading = false);
     } catch (error) {
@@ -182,6 +202,7 @@ class _DocumentEditorScreenState extends State<DocumentEditorScreen> {
       _softBreakOffsets,
     );
     final currentSelection = _selectionFromController(afterDocument);
+    _selectionController.setSelection(currentSelection, afterDocument);
     if (afterDocument.plainText == before.document.plainText &&
         afterDocument.toJson().toString() ==
             before.document.toJson().toString()) {
@@ -190,6 +211,11 @@ class _DocumentEditorScreenState extends State<DocumentEditorScreen> {
           currentSelection.focus.nodeId != before.selection.focus.nodeId ||
           currentSelection.focus.offset != before.selection.focus.offset) {
         history.updateSelection(currentSelection);
+        _toolbarController.updateContext(
+          history.current,
+          _selectionController.context,
+        );
+        if (mounted) setState(() {});
       }
       return;
     }
@@ -197,6 +223,7 @@ class _DocumentEditorScreenState extends State<DocumentEditorScreen> {
       document: afterDocument,
       selection: currentSelection,
     );
+    _contentController.setDocument(afterDocument);
     final delta =
         _contentController.text.length - before.document.plainText.length;
     final command = delta > 0
@@ -220,6 +247,11 @@ class _DocumentEditorScreenState extends State<DocumentEditorScreen> {
             selectionAfter: after.selection,
           );
     history.executeCommand(command);
+    _toolbarController.updateContext(
+      history.current,
+      _selectionController.context,
+    );
+    if (mounted) setState(() {});
   }
 
   DocumentSelection _selectionFromController(StructuredDocument document) {
@@ -276,10 +308,13 @@ class _DocumentEditorScreenState extends State<DocumentEditorScreen> {
       history.undo();
     }
     final state = history.current;
+    _selectionController.setSelection(state.selection, state.document);
+    _toolbarController.updateContext(state, _selectionController.context);
     _contentController.value = TextEditingValue(
       text: state.document.plainText,
       selection: _controllerSelection(state),
     );
+    _contentController.setDocument(state.document);
     _lastVisibleText = _contentController.text;
     _softBreakOffsets.clear();
     _applyingHistory = false;
@@ -421,7 +456,7 @@ class _DocumentEditorScreenState extends State<DocumentEditorScreen> {
   Widget _buildBody(BuildContext context) {
     if (_loading) return const Center(child: CircularProgressIndicator());
     if (_error != null) return Center(child: Text(_error!));
-    return ListView(
+    final editor = ListView(
       padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
       children: [
         TextField(
@@ -436,6 +471,7 @@ class _DocumentEditorScreenState extends State<DocumentEditorScreen> {
         TextField(
           controller: _contentController,
           focusNode: _contentFocusNode,
+          textAlign: _currentTextAlign(),
           minLines: 18,
           maxLines: null,
           decoration: const InputDecoration(
@@ -445,6 +481,154 @@ class _DocumentEditorScreenState extends State<DocumentEditorScreen> {
         ),
       ],
     );
+    final toolbarContext = _toolbarContext();
+    return Stack(
+      children: [
+        editor,
+        Positioned(
+          left: 12,
+          right: 12,
+          bottom: 12,
+          child: ToolbarOverlay(
+            visible:
+                _toolbarController.state.isVisible &&
+                _contentFocusNode.hasFocus,
+            child: SmartFormattingToolbar(
+              contextState: toolbarContext,
+              onToggle: _applyFormat,
+              onColor: (color) => _applyFormat('color', color),
+              onSize: (size) => _applyFormat('fontSize', size),
+              onAlignment: _applyAlignment,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  ToolbarContext _toolbarContext() {
+    final history = _history;
+    if (history == null || history.current.selection.isCollapsed) {
+      return const ToolbarContext(hasSelection: false);
+    }
+    final document = history.current.document;
+    final selection = history.current.selection;
+    final paragraphIndex = document.nodes.indexWhere(
+      (node) => node.id == selection.anchor.nodeId,
+    );
+    final alignment = paragraphIndex >= 0
+        ? (document.nodes[paragraphIndex] as ParagraphNode).attributes.alignment
+        : 'left';
+    return ToolbarContext(
+      hasSelection: true,
+      bold: document.formatActive(selection, 'bold', true),
+      italic: document.formatActive(selection, 'italic', true),
+      underline: document.formatActive(selection, 'underline', true),
+      strikethrough: document.formatActive(selection, 'strikethrough', true),
+      alignment: alignment,
+    );
+  }
+
+  void _applyFormat(String attribute, Object? value) {
+    final history = _history;
+    if (history == null || history.current.selection.isCollapsed) return;
+    final formatting = _formattingController;
+    if (formatting != null) {
+      final before = history.current;
+      switch (attribute) {
+        case 'bold':
+          formatting.toggleBold(before);
+        case 'italic':
+          formatting.toggleItalic(before);
+        case 'underline':
+          formatting.toggleUnderline(before);
+        case 'strikethrough':
+          formatting.toggleStrikethrough(before);
+        case 'color':
+          formatting.setTextColor(before, value as int?);
+        case 'highlight':
+          formatting.setHighlightColor(before, value as int?);
+        case 'fontSize':
+          formatting.setFontSize(before, value as double?);
+        default:
+          return;
+      }
+      final after = history.current;
+      _contentController.setDocument(after.document);
+      setState(() {});
+      _scheduleSave();
+      return;
+    }
+    final before = history.current;
+    final after = EditorState(
+      document: before.document.applyFormat(before.selection, attribute, value),
+      selection: before.selection,
+    );
+    history.executeCommand(
+      FormatTextCommand(
+        before: before,
+        after: after,
+        selectionBefore: before.selection,
+        selectionAfter: before.selection,
+      ),
+    );
+    _contentController.setDocument(after.document);
+    setState(() {});
+    _scheduleSave();
+  }
+
+  void _applyAlignment(String alignment) {
+    final history = _history;
+    if (history == null || history.current.selection.isCollapsed) return;
+    final formatting = _formattingController;
+    if (formatting != null) {
+      formatting.setParagraphAlignment(
+        history.current,
+        ParagraphAlignment.values.firstWhere((item) => item.name == alignment),
+      );
+      final after = history.current;
+      _contentController.setDocument(after.document);
+      setState(() {});
+      _scheduleSave();
+      return;
+    }
+    final before = history.current;
+    final after = EditorState(
+      document: before.document.setParagraphAttribute(
+        before.selection,
+        'alignment',
+        alignment,
+      ),
+      selection: before.selection,
+    );
+    history.executeCommand(
+      FormatTextCommand(
+        before: before,
+        after: after,
+        selectionBefore: before.selection,
+        selectionAfter: before.selection,
+      ),
+    );
+    _contentController.setDocument(after.document);
+    setState(() {});
+    _scheduleSave();
+  }
+
+  TextAlign _currentTextAlign() {
+    final history = _history;
+    if (history == null) return TextAlign.left;
+    final index = history.current.document.nodes.indexWhere(
+      (node) => node.id == history.current.selection.anchor.nodeId,
+    );
+    if (index < 0) return TextAlign.left;
+    return switch ((history.current.document.nodes[index] as ParagraphNode)
+        .attributes
+        .alignment) {
+      'center' => TextAlign.center,
+      'right' => TextAlign.right,
+      'justify' => TextAlign.justify,
+      _ => TextAlign.left,
+    };
   }
 
   Future<void> _changeCategory(String categoryId) async {

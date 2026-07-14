@@ -100,6 +100,16 @@ class ReplaceSelectionCommand extends SnapshotEditCommand {
   }) : super(kind: 'replaceSelection', mergeable: false);
 }
 
+class FormatTextCommand extends SnapshotEditCommand {
+  FormatTextCommand({
+    required super.before,
+    required super.after,
+    required super.selectionBefore,
+    required super.selectionAfter,
+    super.timestamp,
+  }) : super(kind: 'formatText', mergeable: false);
+}
+
 class SplitParagraphCommand extends SnapshotEditCommand {
   SplitParagraphCommand({
     required super.before,

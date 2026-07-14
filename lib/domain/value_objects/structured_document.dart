@@ -67,6 +67,8 @@ class TextSpanMark {
           : const {},
     );
   }
+
+  bool covers(int position) => start <= position && position < end;
 }
 
 sealed class DocumentNode {
@@ -197,6 +199,173 @@ class StructuredDocument {
       );
     }
     return StructuredDocument(nodes: reused, metadata: metadata).normalized();
+  }
+
+  StructuredDocument applyFormat(
+    DocumentSelection selection,
+    String attribute,
+    Object? value,
+  ) {
+    final positions = _orderedPositions(selection);
+    final updated = <DocumentNode>[];
+    for (var index = 0; index < nodes.length; index++) {
+      final node = nodes[index];
+      if (node is! ParagraphNode) {
+        updated.add(node);
+        continue;
+      }
+      final start = index == positions.startIndex
+          ? positions.startOffset
+          : index > positions.startIndex
+          ? 0
+          : node.text.length;
+      final end = index == positions.endIndex
+          ? positions.endOffset
+          : index < positions.endIndex
+          ? node.text.length
+          : 0;
+      updated.add(
+        start < end
+            ? node.copyWith(
+                spans: _formatSpans(node, start, end, attribute, value),
+              )
+            : node,
+      );
+    }
+    return StructuredDocument(nodes: updated, metadata: metadata).normalized();
+  }
+
+  StructuredDocument setParagraphAttribute(
+    DocumentSelection selection,
+    String attribute,
+    Object? value,
+  ) {
+    final positions = _orderedPositions(selection);
+    final updated = nodes.asMap().entries.map((entry) {
+      final node = entry.value;
+      if (node is! ParagraphNode ||
+          entry.key < positions.startIndex ||
+          entry.key > positions.endIndex) {
+        return node;
+      }
+      final current = node.attributes.toJson()..[attribute] = value;
+      return node.copyWith(attributes: ParagraphAttributes.fromJson(current));
+    }).toList();
+    return StructuredDocument(nodes: updated, metadata: metadata).normalized();
+  }
+
+  bool formatActive(
+    DocumentSelection selection,
+    String attribute,
+    Object? expected,
+  ) {
+    final positions = _orderedPositions(selection);
+    var found = false;
+    for (
+      var index = positions.startIndex;
+      index <= positions.endIndex;
+      index++
+    ) {
+      final node = nodes[index] as ParagraphNode;
+      final start = index == positions.startIndex ? positions.startOffset : 0;
+      final end = index == positions.endIndex
+          ? positions.endOffset
+          : node.text.length;
+      for (var offset = start; offset < end; offset++) {
+        found = true;
+        final mark = node.spans
+            .where((span) => span.covers(offset))
+            .fold<Object?>(
+              null,
+              (value, span) => span.attributes[attribute] ?? value,
+            );
+        if (mark != expected) return false;
+      }
+    }
+    return found;
+  }
+
+  ({int startIndex, int startOffset, int endIndex, int endOffset})
+  _orderedPositions(DocumentSelection selection) {
+    var anchorIndex = nodes.indexWhere(
+      (node) => node.id == selection.anchor.nodeId,
+    );
+    var focusIndex = nodes.indexWhere(
+      (node) => node.id == selection.focus.nodeId,
+    );
+    if (anchorIndex < 0) anchorIndex = 0;
+    if (focusIndex < 0) focusIndex = 0;
+    final anchorFirst =
+        anchorIndex < focusIndex ||
+        (anchorIndex == focusIndex &&
+            selection.anchor.offset <= selection.focus.offset);
+    final start = anchorFirst ? selection.anchor : selection.focus;
+    final end = anchorFirst ? selection.focus : selection.anchor;
+    return (
+      startIndex: anchorFirst ? anchorIndex : focusIndex,
+      startOffset: start.offset,
+      endIndex: anchorFirst ? focusIndex : anchorIndex,
+      endOffset: end.offset,
+    );
+  }
+
+  List<TextSpanMark> _formatSpans(
+    ParagraphNode node,
+    int start,
+    int end,
+    String attribute,
+    Object? value,
+  ) {
+    final boundaries = <int>{0, node.text.length, start, end};
+    for (final span in node.spans) {
+      boundaries
+        ..add(span.start)
+        ..add(span.end);
+    }
+    final sorted = boundaries.toList()..sort();
+    final result = <TextSpanMark>[];
+    for (var index = 0; index < sorted.length - 1; index++) {
+      final segmentStart = sorted[index], segmentEnd = sorted[index + 1];
+      if (segmentStart == segmentEnd) continue;
+      final attributes = <String, Object?>{};
+      for (final span in node.spans.where(
+        (span) => span.start <= segmentStart && span.end >= segmentEnd,
+      )) {
+        attributes.addAll(span.attributes);
+      }
+      if (segmentStart >= start && segmentEnd <= end) {
+        if (value == null || value == false) {
+          attributes.remove(attribute);
+        } else {
+          attributes[attribute] = value;
+        }
+      }
+      if (attributes.isNotEmpty) {
+        final previous = result.isNotEmpty ? result.last : null;
+        if (previous != null &&
+            _mapsEqual(previous.attributes, attributes) &&
+            previous.end == segmentStart) {
+          result[result.length - 1] = previous.copyWith(end: segmentEnd);
+        } else {
+          result.add(
+            TextSpanMark(
+              start: segmentStart,
+              end: segmentEnd,
+              attributes: attributes,
+            ),
+          );
+        }
+      }
+    }
+    return result;
+  }
+
+  bool _mapsEqual(Map<String, Object?> first, Map<String, Object?> second) {
+    if (first.length != second.length) return false;
+    for (final entry in first.entries) {
+      if (second[entry.key] != entry.value) return false;
+    }
+    return true;
   }
 
   factory StructuredDocument.fromJson(Map<String, Object?> json) {
@@ -340,6 +509,17 @@ class DocumentEditingEngine {
   }
 
   EditingResult insertText(String value) => replaceSelection(value);
+
+  EditingResult applyInlineAttributes(String attribute, Object? value) {
+    document = document.applyFormat(selection, attribute, value);
+    return EditingResult(document, selection);
+  }
+
+  EditingResult applyParagraphAttributes(String attribute, Object? value) {
+    document = document.setParagraphAttribute(selection, attribute, value);
+    return EditingResult(document, selection);
+  }
+
   EditingResult replaceSelection(String value) {
     if (!selection.isCollapsed) deleteRange(selection);
     final position = _position(selection.anchor);
