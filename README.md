@@ -1,6 +1,9 @@
-# allministrator
+# Allministrator
 
-A new Flutter project.
+Base arquitectónica para una aplicación de notas offline-first en Flutter.
+
+Consulta [ARCHITECTURE.md](ARCHITECTURE.md) para la estructura y límites de
+dependencias iniciales.
 
 ## Getting Started
 
