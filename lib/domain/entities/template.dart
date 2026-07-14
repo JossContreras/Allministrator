@@ -1,17 +1,29 @@
 import 'package:allministrator/core/shared/identifiers.dart';
-import 'package:allministrator/domain/entities/note_version.dart';
 import 'package:allministrator/domain/entities/syncable_entity.dart';
+import 'package:allministrator/domain/value_objects/document_content.dart';
 
-/// Plantilla declarativa compuesta por instantáneas de bloques, sin acoplarla
-/// a una nota, al editor ni a almacenamiento alguno.
+/// Plantilla declarativa de documento, sin acoplarla al editor ni al almacén.
 class Template implements SyncableEntity {
-  const Template({required this.id, required this.workspaceId, required this.name, required this.blocks, required this.createdAt, required this.updatedAt, required this.version, this.deletedAt});
-  @override final Uuid id;
+  const Template({
+    required this.id,
+    required this.workspaceId,
+    required this.name,
+    required this.document,
+    required this.createdAt,
+    required this.updatedAt,
+    required this.version,
+    this.deletedAt,
+  });
+  @override
+  final Uuid id;
   final Uuid workspaceId;
   final String name;
-  final List<BlockSnapshot> blocks;
+  final DocumentContent document;
   final DateTime createdAt;
-  @override final DateTime updatedAt;
-  @override final int version;
-  @override final DateTime? deletedAt;
+  @override
+  final DateTime updatedAt;
+  @override
+  final int version;
+  @override
+  final DateTime? deletedAt;
 }

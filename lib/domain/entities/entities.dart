@@ -1,5 +1,4 @@
 export 'attachment.dart';
-export 'block.dart';
 export 'folder.dart';
 export 'note.dart';
 export 'note_version.dart';

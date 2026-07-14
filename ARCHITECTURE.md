@@ -14,20 +14,27 @@ abstracciones de `core`. `domain` sólo depende de Dart y de los tipos mínimos 
 implementarán interfaces definidas del lado interno, conservando los detalles
 de Drift y sincronización fuera del dominio.
 
-## Modelo
+## Modelo de documentos
 
 Todos los identificadores son `Uuid` (alias de `String`) para facilitar su
 serialización. Las entidades declaradas exponen estado mediante campos `final` y tienen
 `version`, `updatedAt` y `deletedAt`, por lo que pueden participar en soft
-delete y conciliación futura. `Note` no almacena contenido: el documento se
-forma con `Block`, que admite jerarquía mediante `parentBlockId`. Sus cuatro
-payloads JSON están separados explícitamente.
+delete y conciliación futura. `Note` almacena un único `DocumentContent`: un
+objeto JSON autocontenido junto a `schemaVersion`. El editor podrá interpretar
+su árbol de nodos para texto enriquecido, listas, tablas, enlaces, código,
+imágenes o dibujos sin cambiar el esquema de las tablas.
 
-`NoteVersion` y `Template` conservan instantáneas de bloques para que el
-historial y las plantillas no dependan de una futura implementación de base de
-datos. `BlockSnapshot` es un value object necesario para ello, no una entidad
-adicional de negocio.
+`NoteVersion` y `Template` también usan `DocumentContent`, evitando que el
+historial y las plantillas dependan de la implementación de la base de datos.
 
-No se añaden dependencias: UUID, serialización, Drift, inyección de
-dependencias, estado, rutas y sincronización se decidirán al implementar sus
-respectivas fronteras.
+## Persistencia local
+
+`AppDatabase` agrupa las tablas Drift de notas, carpetas, etiquetas, relaciones
+nota-etiqueta, adjuntos y configuración. La fuente local sólo traduce filas a
+entidades; `NoteRepository` es el contrato de dominio y `LocalNoteRepository`
+su implementación local. No existe fuente remota ni sincronización.
+
+Cada fila principal tiene UUID, marcas de creación y actualización, soft delete
+y versión. Una futura sincronización podrá consumir el repositorio, comparar
+`version` y `updatedAt`, y conservar los registros eliminados hasta confirmar
+su propagación. El remoto será otro adaptador, no una dependencia del dominio.
