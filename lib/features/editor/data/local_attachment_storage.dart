@@ -28,7 +28,9 @@ class LocalAttachmentStorage {
     }
     final size = await input.length();
     if (size > maxBytes) {
-      throw const FileSystemException('La imagen supera el limite de 20 MB.');
+      throw FileSystemException(
+        'La imagen supera el límite de ${maxBytes ~/ (1024 * 1024)} MB.',
+      );
     }
     final extension = source.name.split('.').last.toLowerCase();
     const allowed = {
@@ -137,7 +139,8 @@ class LocalAttachmentStorage {
     if (!await images.exists()) return null;
     await for (final entity in images.list()) {
       if (entity is File &&
-          entity.uri.pathSegments.last.startsWith('$attachmentId.')) {
+          (entity.uri.pathSegments.last == attachmentId ||
+              entity.uri.pathSegments.last.startsWith('$attachmentId.'))) {
         return entity.path;
       }
     }

@@ -25,10 +25,11 @@ class DriftDocumentRepository implements DocumentRepository {
   @override
   Future<Document> createDocument() async {
     final now = DateTime.now().toUtc();
+    final id = generateUuid();
     final document = Document(
-      id: generateUuid(),
+      id: id,
       title: '',
-      content: const DocumentContent.empty(),
+      content: DocumentContent.forNewWorkspace(workspaceId: id, now: now),
       isFavorite: false,
       isPinned: false,
       createdAt: now,

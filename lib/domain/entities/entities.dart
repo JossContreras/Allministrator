@@ -8,3 +8,4 @@ export 'syncable_entity.dart';
 export 'tag.dart';
 export 'template.dart';
 export 'workspace.dart';
+export 'workspace_page.dart';

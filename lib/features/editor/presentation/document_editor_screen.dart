@@ -1,22 +1,25 @@
 import 'dart:async';
 
+import 'package:allministrator/core/utils/uuid_generator.dart';
+import 'package:allministrator/domain/blocks/blocks.dart';
+import 'package:allministrator/domain/editing/workspace_editor_session.dart';
+import 'package:allministrator/domain/entities/workspace.dart';
+import 'package:allministrator/domain/value_objects/document_content.dart';
 import 'package:allministrator/features/documents/domain/entities/document.dart';
 import 'package:allministrator/features/documents/domain/repositories/document_repository.dart';
 import 'package:allministrator/features/documents/domain/use_cases/document_use_cases.dart';
-import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
-import 'package:go_router/go_router.dart';
 import 'package:allministrator/features/documents/presentation/category_catalog.dart';
-import 'package:allministrator/domain/editing/editor_history.dart';
-import 'package:allministrator/domain/value_objects/structured_document.dart';
-import 'rich_text_editing_controller.dart';
-import 'smart_formatting_toolbar.dart';
-import 'package:allministrator/domain/editing/selection_controller.dart';
-import 'package:allministrator/domain/editing/formatting_controller.dart';
 import 'package:allministrator/features/editor/data/local_attachment_storage.dart';
-import 'package:allministrator/core/utils/uuid_generator.dart';
-import 'package:image_picker/image_picker.dart';
+import 'package:allministrator/features/editor/presentation/blocks/block_list_view.dart';
+import 'package:allministrator/features/editor/presentation/blocks/block_registry.dart';
+import 'package:allministrator/features/editor/presentation/smart_formatting_toolbar.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:open_filex/open_filex.dart';
+
+enum EditorSaveStatus { editing, saving, saved, error }
 
 class DocumentEditorScreen extends StatefulWidget {
   const DocumentEditorScreen({
@@ -33,81 +36,31 @@ class DocumentEditorScreen extends StatefulWidget {
 }
 
 class _DocumentEditorScreenState extends State<DocumentEditorScreen> {
-  final _titleController = TextEditingController();
-  final _contentController = RichTextEditingController();
+  final TextEditingController _titleController = TextEditingController();
+  final LocalAttachmentStorage _attachmentStorage = LocalAttachmentStorage();
+  final ImagePicker _imagePicker = ImagePicker();
+  final BlockRegistry _registry = BlockRegistry.standard();
+  final ValueNotifier<EditorSaveStatus> _saveStatus = ValueNotifier(
+    EditorSaveStatus.saved,
+  );
+  final Map<String, String> _attachmentPaths = {};
+
   Timer? _saveTimer;
   Future<void> _saveQueue = Future<void>.value();
   Document? _document;
+  String? _categoryId;
+  WorkspaceEditorSession? _session;
   bool _loading = true;
-  bool _saving = false;
   bool _changed = false;
   bool _exiting = false;
   int _changeRevision = 0;
   String? _error;
-  final _softBreakOffsets = <int>{};
-  bool _capturedSoftBreak = false;
-  final _contentFocusNode = FocusNode();
-  String _lastVisibleText = '';
-  EditorHistoryController? _history;
-  bool _applyingHistory = false;
-  final _selectionController = SelectionController();
-  late final ToolbarController _toolbarController = ToolbarController();
-  FormattingController? _formattingController;
-  final _attachmentStorage = LocalAttachmentStorage();
-  final _imagePicker = ImagePicker();
 
   @override
   void initState() {
     super.initState();
-    _contentFocusNode.onKeyEvent = (_, event) {
-      final modifier =
-          HardwareKeyboard.instance.isControlPressed ||
-          HardwareKeyboard.instance.isMetaPressed;
-      if (event is KeyDownEvent &&
-          modifier &&
-          event.logicalKey == LogicalKeyboardKey.keyZ) {
-        if (HardwareKeyboard.instance.isShiftPressed) {
-          _applyHistoryAction(redo: true);
-        } else {
-          _applyHistoryAction(redo: false);
-        }
-        return KeyEventResult.handled;
-      }
-      if (event is KeyDownEvent &&
-          modifier &&
-          event.logicalKey == LogicalKeyboardKey.keyY) {
-        _applyHistoryAction(redo: true);
-        return KeyEventResult.handled;
-      }
-      if (event is KeyDownEvent &&
-          event.logicalKey == LogicalKeyboardKey.enter &&
-          HardwareKeyboard.instance.isShiftPressed) {
-        final offset = _contentController.selection.baseOffset;
-        if (offset >= 0) {
-          _softBreakOffsets.add(offset);
-          _capturedSoftBreak = true;
-        }
-      }
-      return KeyEventResult.ignored;
-    };
-    _contentFocusNode.addListener(() {
-      _toolbarController.setEditorFocus(_contentFocusNode.hasFocus);
-      if (mounted) setState(() {});
-    });
-    _load();
     _titleController.addListener(_scheduleSave);
-    _contentController.addListener(_scheduleSave);
-    _contentController.addListener(_recordContentEdit);
-  }
-
-  @override
-  void dispose() {
-    _saveTimer?.cancel();
-    _titleController.dispose();
-    _contentController.dispose();
-    _contentFocusNode.dispose();
-    _history?.dispose();
-    super.dispose();
+    _load();
   }
 
   Future<void> _load() async {
@@ -123,37 +76,32 @@ class _DocumentEditorScreenState extends State<DocumentEditorScreen> {
         });
         return;
       }
+
+      final workspace = _workspaceForDocument(document);
       _document = document;
+      _categoryId = document.categoryId;
       _titleController.text = document.title;
-      _contentController.text = document.content.text;
-      _contentController.setDocument(document.content.structured);
-      for (final image
-          in document.content.structured.nodes.whereType<ImageNode>()) {
-        final path = await _attachmentStorage.resolvePath(image.attachmentId);
-        if (path != null) {
-          _contentController.attachmentPaths[image.attachmentId] = path;
-        }
-      }
-      _lastVisibleText = _contentController.text;
-      final structured = document.content.structured;
-      _history = EditorHistoryController(
-        initialState: EditorState(
-          document: structured,
-          selection: DocumentSelection.collapsed(
-            DocumentPosition(nodeId: structured.nodes.first.id, offset: 0),
-          ),
-        ),
+      await _resolveAttachmentPaths(workspace);
+      _session = WorkspaceEditorSession(
+        workspace: workspace,
+        onChanged: _workspaceChanged,
       );
-      _selectionController.setSelection(
-        _history!.current.selection,
-        structured,
-      );
-      _formattingController = FormattingController(
-        _history!,
-        _selectionController,
-      );
+      _changed = document.content.wasMigrated;
+      _changeRevision = _changed ? 1 : 0;
       setState(() => _loading = false);
-    } catch (error) {
+
+      if (document.content.migrationError != null && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'El documento anterior no pudo migrarse por completo. '
+              'Se conservó una copia de sus datos originales.',
+            ),
+          ),
+        );
+      }
+      if (_changed) _scheduleSave();
+    } catch (_) {
       if (mounted) {
         setState(() {
           _loading = false;
@@ -163,175 +111,59 @@ class _DocumentEditorScreenState extends State<DocumentEditorScreen> {
     }
   }
 
-  void _scheduleSave() {
-    if (_loading || _document == null) return;
-    if (!_capturedSoftBreak) {
-      _adjustSoftBreakOffsets(_lastVisibleText, _contentController.text);
+  Workspace _workspaceForDocument(Document document) {
+    var workspace = document.content.workspace;
+    if (workspace.pages.isEmpty) {
+      workspace = DocumentContent.forNewWorkspace(
+        workspaceId: document.id,
+        title: document.title,
+        now: document.createdAt,
+      ).workspace;
     }
-    _lastVisibleText = _contentController.text;
-    _capturedSoftBreak = false;
+    final pages = [
+      for (final page in workspace.pages)
+        page.copyWith(workspaceId: document.id),
+    ];
+    return Workspace(
+      id: document.id,
+      title: document.title,
+      description: workspace.description,
+      workspaceType: WorkspaceType.document,
+      pages: pages,
+      themeId: workspace.themeId,
+      templateId: workspace.templateId,
+      isFavorite: document.isFavorite,
+      isArchived: workspace.isArchived,
+      createdAt: document.createdAt,
+      updatedAt: document.updatedAt,
+      deletedAt: document.deletedAt,
+      version: document.version,
+      metadata: workspace.metadata,
+    );
+  }
+
+  Future<void> _resolveAttachmentPaths(Workspace workspace) async {
+    for (final block in workspace.pages.expand((page) => page.blocks)) {
+      final attachmentId = switch (block) {
+        ImageBlock() => block.attachmentId,
+        AttachmentBlock() => block.attachmentId,
+        _ => null,
+      };
+      if (attachmentId == null || attachmentId.isEmpty) continue;
+      final path = await _attachmentStorage.resolvePath(attachmentId);
+      if (path != null) _attachmentPaths[attachmentId] = path;
+    }
+  }
+
+  void _workspaceChanged(Workspace workspace) => _scheduleSave();
+
+  void _scheduleSave() {
+    if (_loading || _document == null || _session == null) return;
     _changed = true;
     _changeRevision++;
-    setState(() => _saving = true);
+    _saveStatus.value = EditorSaveStatus.editing;
     _saveTimer?.cancel();
-    _saveTimer = Timer(const Duration(milliseconds: 600), _save);
-  }
-
-  void _adjustSoftBreakOffsets(String previous, String current) {
-    var prefix = 0;
-    while (prefix < previous.length &&
-        prefix < current.length &&
-        previous[prefix] == current[prefix]) {
-      prefix++;
-    }
-    var suffix = 0;
-    while (suffix < previous.length - prefix &&
-        suffix < current.length - prefix &&
-        previous[previous.length - 1 - suffix] ==
-            current[current.length - 1 - suffix]) {
-      suffix++;
-    }
-    final oldEnd = previous.length - suffix;
-    final delta = current.length - previous.length;
-    final adjusted = <int>{};
-    for (final offset in _softBreakOffsets) {
-      if (offset < prefix) {
-        adjusted.add(offset);
-      } else if (offset >= oldEnd) {
-        adjusted.add(offset + delta);
-      }
-    }
-    _softBreakOffsets
-      ..clear()
-      ..addAll(adjusted);
-  }
-
-  void _recordContentEdit() {
-    final history = _history;
-    if (_loading || _applyingHistory || history == null) return;
-    final before = history.current;
-    final afterDocument = before.document.reconcileText(
-      _contentController.text,
-      _softBreakOffsets,
-    );
-    final currentSelection = _selectionFromController(afterDocument);
-    _selectionController.setSelection(currentSelection, afterDocument);
-    if (afterDocument.plainText == before.document.plainText &&
-        afterDocument.toJson().toString() ==
-            before.document.toJson().toString()) {
-      if (currentSelection.anchor.nodeId != before.selection.anchor.nodeId ||
-          currentSelection.anchor.offset != before.selection.anchor.offset ||
-          currentSelection.focus.nodeId != before.selection.focus.nodeId ||
-          currentSelection.focus.offset != before.selection.focus.offset) {
-        history.updateSelection(currentSelection);
-        _toolbarController.updateContext(
-          history.current,
-          _selectionController.context,
-        );
-        if (mounted) setState(() {});
-      }
-      return;
-    }
-    final after = EditorState(
-      document: afterDocument,
-      selection: currentSelection,
-    );
-    _contentController.setDocument(afterDocument);
-    final delta =
-        _contentController.text.length - before.document.plainText.length;
-    final command = delta > 0
-        ? InsertTextCommand(
-            before: before,
-            after: after,
-            selectionBefore: before.selection,
-            selectionAfter: after.selection,
-          )
-        : delta < 0
-        ? DeleteTextCommand(
-            before: before,
-            after: after,
-            selectionBefore: before.selection,
-            selectionAfter: after.selection,
-          )
-        : ReplaceSelectionCommand(
-            before: before,
-            after: after,
-            selectionBefore: before.selection,
-            selectionAfter: after.selection,
-          );
-    history.executeCommand(command);
-    _toolbarController.updateContext(
-      history.current,
-      _selectionController.context,
-    );
-    if (mounted) setState(() {});
-  }
-
-  DocumentSelection _selectionFromController(StructuredDocument document) {
-    DocumentPosition positionAt(int offset) {
-      var cursor = 0;
-      for (final node in document.nodes.whereType<ParagraphNode>()) {
-        final end = cursor + node.text.length;
-        if (offset <= end) {
-          return DocumentPosition(
-            nodeId: node.id,
-            offset: (offset - cursor).clamp(0, node.text.length),
-          );
-        }
-        cursor = end + 1;
-      }
-      final last = document.nodes.last as ParagraphNode;
-      return DocumentPosition(nodeId: last.id, offset: last.text.length);
-    }
-
-    final value = _contentController.selection;
-    return DocumentSelection(
-      anchor: positionAt(
-        value.baseOffset.clamp(0, _contentController.text.length),
-      ),
-      focus: positionAt(
-        value.extentOffset.clamp(0, _contentController.text.length),
-      ),
-    );
-  }
-
-  TextSelection _controllerSelection(EditorState state) {
-    int offsetOf(DocumentPosition position) {
-      var offset = 0;
-      for (final node in state.document.nodes.whereType<ParagraphNode>()) {
-        if (node.id == position.nodeId) return offset + position.offset;
-        offset += node.text.length + 1;
-      }
-      return offset;
-    }
-
-    return TextSelection(
-      baseOffset: offsetOf(state.selection.anchor),
-      extentOffset: offsetOf(state.selection.focus),
-    );
-  }
-
-  void _applyHistoryAction({required bool redo}) {
-    final history = _history;
-    if (history == null || (redo ? !history.canRedo : !history.canUndo)) return;
-    _applyingHistory = true;
-    if (redo) {
-      history.redo();
-    } else {
-      history.undo();
-    }
-    final state = history.current;
-    _selectionController.setSelection(state.selection, state.document);
-    _toolbarController.updateContext(state, _selectionController.context);
-    _contentController.value = TextEditingValue(
-      text: state.document.plainText,
-      selection: _controllerSelection(state),
-    );
-    _contentController.setDocument(state.document);
-    _lastVisibleText = _contentController.text;
-    _softBreakOffsets.clear();
-    _applyingHistory = false;
-    _scheduleSave();
+    _saveTimer = Timer(const Duration(milliseconds: 700), _save);
   }
 
   Future<void> _save() {
@@ -342,40 +174,47 @@ class _DocumentEditorScreenState extends State<DocumentEditorScreen> {
 
   Future<void> _performSave() async {
     final document = _document;
-    if (document == null || !_changed) return;
+    final session = _session;
+    if (document == null || session == null || !_changed) return;
     final revision = _changeRevision;
+    final title = _titleController.text;
+    final workspace = session.workspace.copyWith(
+      title: title,
+      updatedAt: DateTime.now().toUtc(),
+    );
+    _saveStatus.value = EditorSaveStatus.saving;
     try {
       final saved = await UpdateDocument(widget.repository)(
         document.copyWith(
-          title: _titleController.text,
-          content: document.content.withStructured(
-            _history?.current.document ?? document.content.structured,
-          ),
+          title: title,
+          content: document.content.withWorkspace(workspace),
+          categoryId: _categoryId,
         ),
       );
-      if (mounted) {
-        setState(() {
-          _document = saved;
-          _saving = false;
-          if (_changeRevision == revision) _changed = false;
-        });
+      if (!mounted) return;
+      _document = saved;
+      if (_changeRevision == revision) {
+        _changed = false;
+        _saveStatus.value = EditorSaveStatus.saved;
+      } else {
+        _saveStatus.value = EditorSaveStatus.editing;
       }
     } catch (_) {
-      if (mounted) setState(() => _saving = false);
+      if (mounted) _saveStatus.value = EditorSaveStatus.error;
     }
   }
 
   Future<void> _beforeExit() async {
     _saveTimer?.cancel();
     await _save();
+    await _saveQueue;
   }
 
   Future<void> _exitEditor() async {
     if (_exiting) return;
     _exiting = true;
     await _beforeExit();
-    if (!mounted) return;
-    context.go('/documents');
+    if (mounted) context.go('/documents');
   }
 
   @override
@@ -391,140 +230,19 @@ class _DocumentEditorScreenState extends State<DocumentEditorScreen> {
           icon: const Icon(Icons.arrow_back),
           onPressed: _exitEditor,
         ),
-        title: Text(
-          _document?.title.trim().isNotEmpty == true
-              ? _document!.title
-              : 'Documento sin título',
+        title: ValueListenableBuilder<TextEditingValue>(
+          valueListenable: _titleController,
+          builder: (context, value, _) => Text(
+            value.text.trim().isEmpty ? 'Documento sin título' : value.text,
+          ),
         ),
         actions: [
-          PopupMenuButton<String>(
-            tooltip: 'Insertar objeto',
-            icon: const Icon(Icons.add_box_outlined),
-            onSelected: (value) {
-              if (value == 'image') _insertImage();
-              if (value == 'divider') _insertDivider();
-              if (value == 'checklist') _insertChecklist();
-              if (value == 'quote') _insertQuote();
-              if (value == 'callout') _insertCallout();
-              if (value == 'code') _insertCode();
-              if (value == 'table') _insertTable();
-              if (value == 'file') _insertFile();
-            },
-            itemBuilder: (_) => const [
-              PopupMenuItem(
-                value: 'image',
-                child: ListTile(
-                  leading: Icon(Icons.image_outlined),
-                  title: Text('Imagen'),
-                ),
-              ),
-              PopupMenuItem(
-                value: 'divider',
-                child: ListTile(
-                  leading: Icon(Icons.horizontal_rule),
-                  title: Text('Separador'),
-                ),
-              ),
-              PopupMenuItem(
-                value: 'table',
-                child: ListTile(
-                  leading: Icon(Icons.table_chart_outlined),
-                  title: Text('Tabla'),
-                ),
-              ),
-              PopupMenuItem(
-                value: 'file',
-                child: ListTile(
-                  leading: Icon(Icons.attach_file),
-                  title: Text('Archivo'),
-                ),
-              ),
-              PopupMenuItem(
-                value: 'checklist',
-                child: ListTile(
-                  leading: Icon(Icons.check_box_outlined),
-                  title: Text('Checklist'),
-                ),
-              ),
-              PopupMenuItem(
-                value: 'quote',
-                child: ListTile(
-                  leading: Icon(Icons.format_quote),
-                  title: Text('Cita'),
-                ),
-              ),
-              PopupMenuItem(
-                value: 'callout',
-                child: ListTile(
-                  leading: Icon(Icons.info_outline),
-                  title: Text('Callout'),
-                ),
-              ),
-              PopupMenuItem(
-                value: 'code',
-                child: ListTile(
-                  leading: Icon(Icons.code),
-                  title: Text('Código'),
-                ),
-              ),
-            ],
-          ),
-          if (_history != null)
-            AnimatedBuilder(
-              animation: _history!,
-              builder: (context, _) => Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  IconButton(
-                    tooltip: 'Deshacer',
-                    onPressed: _history!.canUndo
-                        ? () => _applyHistoryAction(redo: false)
-                        : null,
-                    icon: const Icon(Icons.undo),
-                  ),
-                  IconButton(
-                    tooltip: 'Rehacer',
-                    onPressed: _history!.canRedo
-                        ? () => _applyHistoryAction(redo: true)
-                        : null,
-                    icon: const Icon(Icons.redo),
-                  ),
-                ],
-              ),
-            ),
-          PopupMenuButton<String>(
-            tooltip: 'Categoría',
-            icon: Icon(
-              Icons.label_outline,
-              color: CategoryCatalog.resolve(_document?.categoryId).color,
-            ),
-            onSelected: _changeCategory,
-            itemBuilder: (_) => [
-              for (final category in CategoryCatalog.values)
-                PopupMenuItem(
-                  value: category.id,
-                  child: Row(
-                    children: [
-                      CircleAvatar(radius: 7, backgroundColor: category.color),
-                      const SizedBox(width: 10),
-                      Text(category.name),
-                      if (_document?.categoryId == category.id) ...[
-                        const Spacer(),
-                        const Icon(Icons.check, size: 18),
-                      ],
-                    ],
-                  ),
-                ),
-            ],
-          ),
+          if (_session != null) _insertMenu(),
+          if (_session != null) _historyActions(_session!),
+          _categoryMenu(),
           Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: Center(
-              child: Text(
-                _saving ? 'Guardando…' : 'Guardado',
-                style: Theme.of(context).textTheme.bodySmall,
-              ),
-            ),
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            child: Center(child: _saveIndicator()),
           ),
         ],
       ),
@@ -541,371 +259,362 @@ class _DocumentEditorScreenState extends State<DocumentEditorScreen> {
   Widget _buildBody(BuildContext context) {
     if (_loading) return const Center(child: CircularProgressIndicator());
     if (_error != null) return Center(child: Text(_error!));
-    final editor = ListView(
-      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
-      children: [
-        TextField(
-          controller: _titleController,
-          style: Theme.of(context).textTheme.headlineSmall,
-          decoration: const InputDecoration(
-            hintText: 'Título',
-            border: InputBorder.none,
-          ),
-        ),
-        const Divider(),
-        TextField(
-          controller: _contentController,
-          focusNode: _contentFocusNode,
-          textAlign: _currentTextAlign(),
-          minLines: 18,
-          maxLines: null,
-          decoration: const InputDecoration(
-            hintText: 'Empieza a escribir…',
-            border: InputBorder.none,
-          ),
-        ),
-      ],
-    );
-    final toolbarContext = _toolbarContext();
+    final session = _session!;
     return Stack(
       children: [
-        editor,
+        BlockListView(
+          session: session,
+          registry: _registry,
+          onChanged: _onBlockChanged,
+          resolveAttachmentPath: (id) => _attachmentPaths[id],
+          onReplaceImage: _replaceImage,
+          onReplaceAttachment: _replaceAttachment,
+          onOpenAttachment: _openAttachment,
+          header: Column(
+            children: [
+              TextField(
+                controller: _titleController,
+                style: Theme.of(context).textTheme.headlineSmall,
+                decoration: const InputDecoration(
+                  hintText: 'Título',
+                  border: InputBorder.none,
+                ),
+              ),
+              const Divider(),
+            ],
+          ),
+        ),
         Positioned(
           left: 12,
           right: 12,
           bottom: 12,
-          child: ToolbarOverlay(
-            visible:
-                _toolbarController.state.isVisible &&
-                _contentFocusNode.hasFocus,
-            child: SmartFormattingToolbar(
-              contextState: toolbarContext,
-              onToggle: _applyFormat,
-              onColor: (color) => _applyFormat('color', color),
-              onSize: (size) => _applyFormat('fontSize', size),
-              onAlignment: _applyAlignment,
-            ),
+          child: ValueListenableBuilder<int>(
+            valueListenable: session.selectionRevision,
+            builder: (context, _, _) {
+              final toolbar = _toolbarContext(session);
+              return ToolbarOverlay(
+                visible: toolbar.hasSelection,
+                child: SmartFormattingToolbar(
+                  contextState: toolbar,
+                  onToggle: session.applyTextFormat,
+                  onColor: (color) => session.applyTextFormat('color', color),
+                  onSize: (size) => session.applyTextFormat('fontSize', size),
+                  onAlignment: session.applyParagraphAlignment,
+                ),
+              );
+            },
           ),
         ),
       ],
     );
   }
 
-  ToolbarContext _toolbarContext() {
-    final history = _history;
-    if (history == null || history.current.selection.isCollapsed) {
+  ToolbarContext _toolbarContext(WorkspaceEditorSession session) {
+    final block = session.selectedBlock;
+    if (block is! TextBlock) {
       return const ToolbarContext(hasSelection: false);
     }
-    final document = history.current.document;
-    final selection = history.current.selection;
-    final paragraphIndex = document.nodes.indexWhere(
-      (node) => node.id == selection.anchor.nodeId,
-    );
-    final alignment = paragraphIndex >= 0
-        ? (document.nodes[paragraphIndex] as ParagraphNode).attributes.alignment
-        : 'left';
+    final selection = session.selectionFor(block.id) ?? block.selection;
+    final hasSelection =
+        selection != null && selection.baseOffset != selection.extentOffset;
+    if (!hasSelection) return const ToolbarContext(hasSelection: false);
     return ToolbarContext(
       hasSelection: true,
-      bold: document.formatActive(selection, 'bold', true),
-      italic: document.formatActive(selection, 'italic', true),
-      underline: document.formatActive(selection, 'underline', true),
-      strikethrough: document.formatActive(selection, 'strikethrough', true),
-      alignment: alignment,
+      bold: session.textFormatActive('bold', true),
+      italic: session.textFormatActive('italic', true),
+      underline: session.textFormatActive('underline', true),
+      strikethrough: session.textFormatActive('strikethrough', true),
+      alignment: session.currentParagraphAlignment,
     );
   }
 
-  void _applyFormat(String attribute, Object? value) {
-    final history = _history;
-    if (history == null || history.current.selection.isCollapsed) return;
-    final formatting = _formattingController;
-    if (formatting != null) {
-      final before = history.current;
-      switch (attribute) {
-        case 'bold':
-          formatting.toggleBold(before);
-        case 'italic':
-          formatting.toggleItalic(before);
-        case 'underline':
-          formatting.toggleUnderline(before);
-        case 'strikethrough':
-          formatting.toggleStrikethrough(before);
-        case 'color':
-          formatting.setTextColor(before, value as int?);
-        case 'highlight':
-          formatting.setHighlightColor(before, value as int?);
-        case 'fontSize':
-          formatting.setFontSize(before, value as double?);
-        default:
-          return;
-      }
-      final after = history.current;
-      _contentController.setDocument(after.document);
-      setState(() {});
-      _scheduleSave();
-      return;
-    }
-    final before = history.current;
-    final after = EditorState(
-      document: before.document.applyFormat(before.selection, attribute, value),
-      selection: before.selection,
-    );
-    history.executeCommand(
-      FormatTextCommand(
-        before: before,
-        after: after,
-        selectionBefore: before.selection,
-        selectionAfter: before.selection,
+  Widget _insertMenu() => PopupMenuButton<BlockType>(
+    tooltip: 'Insertar bloque',
+    icon: const Icon(Icons.add_box_outlined),
+    onSelected: _insertBlock,
+    itemBuilder: (_) => const [
+      PopupMenuItem(
+        value: BlockType.text,
+        child: ListTile(leading: Icon(Icons.text_fields), title: Text('Texto')),
       ),
-    );
-    _contentController.setDocument(after.document);
-    setState(() {});
-    _scheduleSave();
-  }
-
-  void _applyAlignment(String alignment) {
-    final history = _history;
-    if (history == null || history.current.selection.isCollapsed) return;
-    final formatting = _formattingController;
-    if (formatting != null) {
-      formatting.setParagraphAlignment(
-        history.current,
-        ParagraphAlignment.values.firstWhere((item) => item.name == alignment),
-      );
-      final after = history.current;
-      _contentController.setDocument(after.document);
-      setState(() {});
-      _scheduleSave();
-      return;
-    }
-    final before = history.current;
-    final after = EditorState(
-      document: before.document.setParagraphAttribute(
-        before.selection,
-        'alignment',
-        alignment,
+      PopupMenuItem(
+        value: BlockType.image,
+        child: ListTile(
+          leading: Icon(Icons.image_outlined),
+          title: Text('Imagen'),
+        ),
       ),
-      selection: before.selection,
-    );
-    history.executeCommand(
-      FormatTextCommand(
-        before: before,
-        after: after,
-        selectionBefore: before.selection,
-        selectionAfter: before.selection,
+      PopupMenuItem(
+        value: BlockType.divider,
+        child: ListTile(
+          leading: Icon(Icons.horizontal_rule),
+          title: Text('Separador'),
+        ),
       ),
-    );
-    _contentController.setDocument(after.document);
-    setState(() {});
-    _scheduleSave();
-  }
+      PopupMenuItem(
+        value: BlockType.checklist,
+        child: ListTile(
+          leading: Icon(Icons.check_box_outlined),
+          title: Text('Checklist'),
+        ),
+      ),
+      PopupMenuItem(
+        value: BlockType.code,
+        child: ListTile(leading: Icon(Icons.code), title: Text('Código')),
+      ),
+      PopupMenuItem(
+        value: BlockType.table,
+        child: ListTile(
+          leading: Icon(Icons.table_chart_outlined),
+          title: Text('Tabla'),
+        ),
+      ),
+      PopupMenuItem(
+        value: BlockType.attachment,
+        child: ListTile(
+          leading: Icon(Icons.attach_file),
+          title: Text('Archivo'),
+        ),
+      ),
+    ],
+  );
 
-  TextAlign _currentTextAlign() {
-    final history = _history;
-    if (history == null) return TextAlign.left;
-    final index = history.current.document.nodes.indexWhere(
-      (node) => node.id == history.current.selection.anchor.nodeId,
-    );
-    if (index < 0) return TextAlign.left;
-    final selected = history.current.document.nodes[index];
-    if (selected is! ParagraphNode) return TextAlign.left;
-    return switch (selected.attributes.alignment) {
-      'center' => TextAlign.center,
-      'right' => TextAlign.right,
-      'justify' => TextAlign.justify,
-      _ => TextAlign.left,
-    };
-  }
+  Widget _historyActions(WorkspaceEditorSession session) => AnimatedBuilder(
+    animation: session,
+    builder: (context, _) => Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        IconButton(
+          tooltip: 'Deshacer',
+          onPressed: session.canUndo ? session.undo : null,
+          icon: const Icon(Icons.undo),
+        ),
+        IconButton(
+          tooltip: 'Rehacer',
+          onPressed: session.canRedo ? session.redo : null,
+          icon: const Icon(Icons.redo),
+        ),
+      ],
+    ),
+  );
 
-  Future<void> _insertImage() async {
-    if (_history == null || _history!.current.selection.isCollapsed) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Coloca el cursor donde quieras insertar la imagen.'),
+  Widget _categoryMenu() => PopupMenuButton<String>(
+    tooltip: 'Categoría',
+    icon: Icon(
+      Icons.label_outline,
+      color: CategoryCatalog.resolve(_categoryId).color,
+    ),
+    onSelected: _changeCategory,
+    itemBuilder: (_) => [
+      for (final category in CategoryCatalog.values)
+        PopupMenuItem(
+          value: category.id,
+          child: Row(
+            children: [
+              CircleAvatar(radius: 7, backgroundColor: category.color),
+              const SizedBox(width: 10),
+              Text(category.name),
+              if (_categoryId == category.id) ...[
+                const Spacer(),
+                const Icon(Icons.check, size: 18),
+              ],
+            ],
           ),
-        );
-      }
-      return;
-    }
-    try {
+        ),
+    ],
+  );
+
+  Widget _saveIndicator() => ValueListenableBuilder<EditorSaveStatus>(
+    valueListenable: _saveStatus,
+    builder: (context, status, _) => Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        if (status == EditorSaveStatus.saving)
+          const Padding(
+            padding: EdgeInsets.only(right: 6),
+            child: SizedBox.square(
+              dimension: 12,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            ),
+          ),
+        if (status == EditorSaveStatus.error)
+          Icon(
+            Icons.error_outline,
+            size: 16,
+            color: Theme.of(context).colorScheme.error,
+          ),
+        const SizedBox(width: 4),
+        Text(switch (status) {
+          EditorSaveStatus.editing => 'Editando',
+          EditorSaveStatus.saving => 'Guardando',
+          EditorSaveStatus.saved => 'Guardado',
+          EditorSaveStatus.error => 'Error',
+        }, style: Theme.of(context).textTheme.bodySmall),
+      ],
+    ),
+  );
+
+  void _onBlockChanged(
+    BaseBlock block, {
+    required String kind,
+    bool mergeable = false,
+    bool refreshPresentation = false,
+  }) {
+    _session?.updateBlock(
+      block,
+      kind: kind,
+      mergeable: mergeable,
+      refreshPresentation: refreshPresentation,
+    );
+  }
+
+  Future<void> _insertBlock(BlockType type) async {
+    final session = _session;
+    if (session == null) return;
+    if (type == BlockType.image) {
       final picked = await _imagePicker.pickImage(source: ImageSource.gallery);
       if (picked == null || !mounted) return;
-      final stored = await _attachmentStorage.copyImage(picked);
-      final before = _history!.current;
-      final engine = DocumentEditingEngine(
-        before.document,
-        selection: before.selection,
-      );
-      final result = engine.insertImage(
-        ImageNode(
-          id: generateUuid(),
-          attachmentId: stored.id,
-          altText: stored.originalFileName,
-          createdAt: DateTime.now().toUtc(),
-        ),
-      );
-      final after = EditorState(
-        document: result.document,
-        selection: result.selection,
-      );
-      _history!.executeCommand(
-        InsertNodeCommand(
-          before: before,
-          after: after,
-          selectionBefore: before.selection,
-          selectionAfter: after.selection,
-        ),
-      );
-      _contentController.attachmentPaths[stored.id] = stored.localPath;
-      _applyingHistory = true;
-      _contentController.value = TextEditingValue(
-        text: after.document.plainText,
-        selection: _controllerSelection(after),
-      );
-      _contentController.setDocument(after.document);
-      _applyingHistory = false;
-      setState(() {});
-      _scheduleSave();
-    } catch (error) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('No se pudo insertar la imagen: $error')),
+      try {
+        final stored = await _attachmentStorage.copyImage(picked);
+        _attachmentPaths[stored.id] = stored.localPath;
+        session.insertBlock(
+          ImageBlock(
+            id: generateUuid(),
+            orderKey: session.blocks.length.toDouble(),
+            attachmentId: stored.id,
+            altText: stored.originalFileName,
+            metadata: {
+              'mimeType': stored.mimeType,
+              'sizeBytes': stored.sizeBytes,
+              'originalFileName': stored.originalFileName,
+            },
+          ),
         );
+      } catch (error) {
+        _showError('No se pudo insertar la imagen: $error');
       }
+      return;
     }
-  }
-
-  void _insertDivider() {
-    final history = _history;
-    if (history == null) return;
-    final before = history.current;
-    final engine = DocumentEditingEngine(
-      before.document,
-      selection: before.selection,
-    );
-    final result = engine.insertDivider(DividerNode(id: generateUuid()));
-    final after = EditorState(
-      document: result.document,
-      selection: result.selection,
-    );
-    history.executeCommand(
-      InsertNodeCommand(
-        before: before,
-        after: after,
-        selectionBefore: before.selection,
-        selectionAfter: after.selection,
-      ),
-    );
-    _applyingHistory = true;
-    _contentController.value = TextEditingValue(
-      text: after.document.plainText,
-      selection: _controllerSelection(after),
-    );
-    _contentController.setDocument(after.document);
-    _applyingHistory = false;
-    setState(() {});
-    _scheduleSave();
-  }
-
-  void _insertChecklist() =>
-      _insertStructuredNode(ChecklistNode(id: generateUuid()));
-  void _insertQuote() => _insertStructuredNode(QuoteNode(id: generateUuid()));
-  void _insertCallout() =>
-      _insertStructuredNode(CalloutNode(id: generateUuid(), title: 'Idea'));
-  void _insertCode() =>
-      _insertStructuredNode(CodeBlockNode(id: generateUuid()));
-  void _insertTable() {
-    final rows = List.generate(
-      2,
-      (_) => TableRowData(
-        id: generateUuid(),
-        cells: List.generate(2, (_) => TableCellData(id: generateUuid())),
-      ),
-    );
-    _insertStructuredNode(
-      TableNode(
-        id: generateUuid(),
-        rows: rows,
-        columnDefinitions: List.generate(
-          2,
-          (_) => TableColumnDefinition(id: generateUuid()),
-        ),
-      ),
+    if (type == BlockType.attachment) {
+      await _insertAttachment();
+      return;
+    }
+    session.insertBlock(
+      _registry.create(type, orderKey: session.blocks.length.toDouble()),
     );
   }
 
-  Future<void> _insertFile() async {
+  Future<void> _insertAttachment() async {
+    final result = await FilePicker.platform.pickFiles(withData: false);
+    final file = result?.files.single;
+    if (file == null || !mounted) return;
     try {
-      final result = await FilePicker.platform.pickFiles(withData: false);
-      final file = result?.files.single;
-      if (file == null || !mounted) return;
       final stored = await _attachmentStorage.copyFile(file);
-      _insertStructuredNode(
-        AttachmentNode(
+      _attachmentPaths[stored.id] = stored.localPath;
+      _session?.insertBlock(
+        AttachmentBlock(
           id: generateUuid(),
+          orderKey: _session!.blocks.length.toDouble(),
           attachmentId: stored.id,
           displayName: stored.originalFileName,
+          mimeType: stored.mimeType,
+          extension: stored.extension,
+          sizeBytes: stored.sizeBytes,
+          metadata: {'checksum': stored.checksum},
         ),
       );
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Archivo adjunto agregado')),
-        );
-      }
     } catch (error) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('No se pudo adjuntar el archivo: $error')),
-        );
-      }
+      _showError('No se pudo adjuntar el archivo: $error');
     }
   }
 
-  void _insertStructuredNode(DocumentNode node) {
-    final history = _history;
-    if (history == null) return;
-    final before = history.current;
-    final result = DocumentEditingEngine(
-      before.document,
-      selection: before.selection,
-    ).insertNode(node);
-    final after = EditorState(
-      document: result.document,
-      selection: result.selection,
-    );
-    history.executeCommand(
-      InsertNodeCommand(
-        before: before,
-        after: after,
-        selectionBefore: before.selection,
-        selectionAfter: after.selection,
-      ),
-    );
-    _applyingHistory = true;
-    _contentController.value = TextEditingValue(
-      text: after.document.plainText,
-      selection: _controllerSelection(after),
-    );
-    _contentController.setDocument(after.document);
-    _applyingHistory = false;
-    setState(() {});
+  Future<void> _replaceImage(ImageBlock block) async {
+    final picked = await _imagePicker.pickImage(source: ImageSource.gallery);
+    if (picked == null || !mounted) return;
+    try {
+      final stored = await _attachmentStorage.copyImage(picked);
+      _attachmentPaths[stored.id] = stored.localPath;
+      _session?.updateBlock(
+        block.copyWith(
+          attachmentId: stored.id,
+          altText: stored.originalFileName,
+          metadata: {
+            ...block.metadata,
+            'mimeType': stored.mimeType,
+            'sizeBytes': stored.sizeBytes,
+            'originalFileName': stored.originalFileName,
+          },
+        ),
+        kind: 'replaceImage',
+        refreshPresentation: true,
+      );
+    } catch (error) {
+      _showError('No se pudo reemplazar la imagen: $error');
+    }
+  }
+
+  Future<void> _replaceAttachment(AttachmentBlock block) async {
+    final result = await FilePicker.platform.pickFiles(withData: false);
+    final file = result?.files.single;
+    if (file == null || !mounted) return;
+    try {
+      final stored = await _attachmentStorage.copyFile(file);
+      _attachmentPaths[stored.id] = stored.localPath;
+      _session?.updateBlock(
+        block.copyWith(
+          attachmentId: stored.id,
+          displayName: stored.originalFileName,
+          mimeType: stored.mimeType,
+          extension: stored.extension,
+          sizeBytes: stored.sizeBytes,
+          metadata: {...block.metadata, 'checksum': stored.checksum},
+        ),
+        kind: 'replaceAttachment',
+        refreshPresentation: true,
+      );
+    } catch (error) {
+      _showError('No se pudo reemplazar el archivo: $error');
+    }
+  }
+
+  Future<void> _openAttachment(AttachmentBlock block) async {
+    final path =
+        _attachmentPaths[block.attachmentId] ??
+        await _attachmentStorage.resolvePath(block.attachmentId);
+    if (path == null) {
+      _showError('El archivo ya no está disponible en este dispositivo.');
+      return;
+    }
+    final result = await OpenFilex.open(path);
+    if (result.type != ResultType.done) {
+      _showError(
+        'No se encontró una aplicación compatible para abrir el archivo.',
+      );
+    }
+  }
+
+  void _changeCategory(String categoryId) {
+    final document = _document;
+    if (document == null || _categoryId == categoryId) return;
+    setState(() => _categoryId = categoryId);
     _scheduleSave();
   }
 
-  Future<void> _changeCategory(String categoryId) async {
-    final document = _document;
-    if (document == null || document.categoryId == categoryId) return;
-    try {
-      final updated = await widget.repository.updateDocument(
-        document.copyWith(categoryId: categoryId),
-      );
-      if (mounted) setState(() => _document = updated);
-    } catch (_) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('No se pudo actualizar la categoría')),
-        );
-      }
-    }
+  void _showError(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  @override
+  void dispose() {
+    _saveTimer?.cancel();
+    _titleController
+      ..removeListener(_scheduleSave)
+      ..dispose();
+    _session?.dispose();
+    _saveStatus.dispose();
+    super.dispose();
   }
 }
