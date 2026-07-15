@@ -29,7 +29,7 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase.defaults() : super(driftDatabase(name: 'allministrator'));
 
   @override
-  int get schemaVersion => 4;
+  int get schemaVersion => 5;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -51,6 +51,7 @@ class AppDatabase extends _$AppDatabase {
         await migrator.addColumn(attachments, attachments.extension);
         await migrator.addColumn(attachments, attachments.checksum);
       }
+      if (from < 5) await _seedCategories();
     },
   );
 
@@ -62,6 +63,7 @@ class AppDatabase extends _$AppDatabase {
       ('estudio', 'Estudio', 'teal'),
       ('ideas', 'Ideas', 'amber'),
       ('proyectos', 'Proyectos', 'rose'),
+      ('archivos', 'Archivos', 'cyan'),
       ('none', 'Sin categoría', 'slate'),
     ];
     await batch((batch) {

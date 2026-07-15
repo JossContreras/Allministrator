@@ -1,5 +1,9 @@
 import 'package:allministrator/core/shared/identifiers.dart';
+import 'package:allministrator/domain/entities/workspace.dart';
+import 'package:allministrator/domain/entities/workspace_page.dart';
 import 'package:allministrator/domain/value_objects/document_content.dart';
+
+enum DocumentKind { document, canvas }
 
 class Document {
   const Document({
@@ -25,6 +29,28 @@ class Document {
   final DateTime updatedAt;
   final DateTime? deletedAt;
   final int version;
+
+  DocumentKind get kind {
+    final workspace = content.workspace;
+    if (workspace.workspaceType == WorkspaceType.canvas ||
+        workspace.pages.any(
+          (page) => page.layoutType == WorkspaceLayoutType.canvas,
+        )) {
+      return DocumentKind.canvas;
+    }
+    return DocumentKind.document;
+  }
+
+  bool get isCanvas => kind == DocumentKind.canvas;
+  bool get isDocument => kind == DocumentKind.document;
+  String? get sourceFormat {
+    final value = content.workspace.metadata['sourceFormat'];
+    return value is String && value.trim().isNotEmpty
+        ? value.toLowerCase()
+        : null;
+  }
+
+  bool get isExternalFile => sourceFormat != null;
 
   Document copyWith({
     String? title,

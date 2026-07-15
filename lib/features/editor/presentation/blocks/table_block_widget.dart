@@ -1,4 +1,5 @@
 import 'package:allministrator/domain/blocks/blocks.dart';
+import 'package:allministrator/app/theme/app_motion.dart';
 import 'package:allministrator/domain/interaction/interaction.dart';
 import 'package:allministrator/features/editor/presentation/blocks/block_frame.dart';
 import 'package:allministrator/features/editor/presentation/blocks/block_render_context.dart';
@@ -133,7 +134,7 @@ class _TableBlockWidgetState extends State<TableBlockWidget> {
       ),
       priority: 25,
       child: AnimatedContainer(
-        duration: const Duration(milliseconds: 120),
+        duration: AppMotion.fast,
         color: selected
             ? Theme.of(
                 context,

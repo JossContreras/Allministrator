@@ -23,8 +23,39 @@ enum WorkspaceTool {
   pen,
   highlighter,
   eraser,
+  inkLasso,
+  line,
+  arrow,
+  rectangle,
+  ellipse,
   shape,
   connector,
+  textRecognition,
+  shapeRecognition,
+  laserPointer,
+  ruler,
+}
+
+extension WorkspaceToolInk on WorkspaceTool {
+  bool get startsInkSession => switch (this) {
+    WorkspaceTool.pen ||
+    WorkspaceTool.highlighter ||
+    WorkspaceTool.eraser ||
+    WorkspaceTool.inkLasso ||
+    WorkspaceTool.line ||
+    WorkspaceTool.arrow ||
+    WorkspaceTool.rectangle ||
+    WorkspaceTool.ellipse => true,
+    _ => false,
+  };
+
+  bool get isInkShape => switch (this) {
+    WorkspaceTool.line ||
+    WorkspaceTool.arrow ||
+    WorkspaceTool.rectangle ||
+    WorkspaceTool.ellipse => true,
+    _ => false,
+  };
 }
 
 enum InteractionSessionType {
@@ -127,6 +158,15 @@ class LassoSelection extends WorkspaceSelection {
   const LassoSelection(this.points);
 
   final List<InteractionPoint> points;
+}
+
+class InkSelection extends WorkspaceSelection {
+  const InkSelection(this.elementIds, {this.primaryElementId});
+
+  final List<Uuid> elementIds;
+  final Uuid? primaryElementId;
+
+  bool get isEmpty => elementIds.isEmpty;
 }
 
 class InteractionPoint {

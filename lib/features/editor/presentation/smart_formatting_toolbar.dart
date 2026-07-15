@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:allministrator/app/theme/app_motion.dart';
+import 'package:allministrator/app/theme/app_radius.dart';
 import 'package:allministrator/domain/editing/editor_history.dart';
 import 'package:allministrator/domain/editing/selection_controller.dart';
 
@@ -234,11 +236,11 @@ class ToolbarOverlay extends StatelessWidget {
     ignoring: !visible,
     child: AnimatedSlide(
       offset: visible ? Offset.zero : const Offset(0, 0.25),
-      duration: const Duration(milliseconds: 240),
+      duration: AppMotion.normal,
       curve: Curves.easeOutCubic,
       child: AnimatedOpacity(
         opacity: visible ? 1 : 0,
-        duration: const Duration(milliseconds: 180),
+        duration: AppMotion.fast,
         child: child,
       ),
     ),
@@ -261,111 +263,127 @@ class SmartFormattingToolbar extends StatelessWidget {
   final ValueChanged<String> onAlignment;
 
   @override
-  Widget build(BuildContext context) => Material(
-    elevation: 4,
-    color: Theme.of(context).colorScheme.surfaceContainer,
-    borderRadius: BorderRadius.circular(18),
-    child: SingleChildScrollView(
-      scrollDirection: Axis.horizontal,
-      padding: const EdgeInsets.all(8),
-      child: Row(
-        children: [
-          ToolbarGroup(
+  Widget build(BuildContext context) => FocusTraversalGroup(
+    policy: ReadingOrderTraversalPolicy(),
+    child: Semantics(
+      container: true,
+      label: 'Formato del texto seleccionado',
+      child: Material(
+        elevation: 8,
+        color: Theme.of(context).colorScheme.surfaceContainerHigh,
+        borderRadius: BorderRadius.circular(AppRadius.card),
+        clipBehavior: Clip.antiAlias,
+        child: SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          padding: const EdgeInsets.all(8),
+          child: Row(
             children: [
-              ToolbarButton(
-                icon: Icons.format_bold,
-                tooltip: 'Negrita',
-                active: contextState.bold,
-                onPressed: () => onToggle('bold', !contextState.bold),
-              ),
-              ToolbarButton(
-                icon: Icons.format_italic,
-                tooltip: 'Cursiva',
-                active: contextState.italic,
-                onPressed: () => onToggle('italic', !contextState.italic),
-              ),
-              ToolbarButton(
-                icon: Icons.format_underlined,
-                tooltip: 'Subrayado',
-                active: contextState.underline,
-                onPressed: () => onToggle('underline', !contextState.underline),
-              ),
-              ToolbarButton(
-                icon: Icons.strikethrough_s,
-                tooltip: 'Tachado',
-                active: contextState.strikethrough,
-                onPressed: () =>
-                    onToggle('strikethrough', !contextState.strikethrough),
-              ),
-            ],
-          ),
-          const ToolbarDivider(),
-          PopupMenuButton<int?>(
-            tooltip: 'Color de texto',
-            onSelected: onColor,
-            itemBuilder: (_) => _colors
-                .map(
-                  (color) =>
-                      PopupMenuItem(value: color, child: _colorChoice(color)),
-                )
-                .toList(),
-            child: const Icon(Icons.format_color_text),
-          ),
-          PopupMenuButton<int?>(
-            tooltip: 'Resaltado',
-            onSelected: (value) => onToggle('highlight', value),
-            itemBuilder: (_) => _highlights
-                .map(
-                  (color) =>
-                      PopupMenuItem(value: color, child: _colorChoice(color)),
-                )
-                .toList(),
-            child: const Icon(Icons.highlight),
-          ),
-          const ToolbarDivider(),
-          PopupMenuButton<double>(
-            tooltip: 'Tamaño de fuente',
-            onSelected: onSize,
-            itemBuilder: (_) => [12, 14, 16, 18, 24, 32]
-                .map(
-                  (size) => PopupMenuItem(
-                    value: size.toDouble(),
-                    child: Text('${size}px'),
+              ToolbarGroup(
+                children: [
+                  ToolbarButton(
+                    icon: Icons.format_bold,
+                    tooltip: 'Negrita',
+                    active: contextState.bold,
+                    onPressed: () => onToggle('bold', !contextState.bold),
                   ),
-                )
-                .toList(),
-            child: const Icon(Icons.format_size),
-          ),
-          const ToolbarDivider(),
-          ToolbarGroup(
-            children: [
-              ToolbarButton(
-                icon: Icons.format_align_left,
-                tooltip: 'Alinear a la izquierda',
-                active: contextState.alignment == 'left',
-                onPressed: () => onAlignment('left'),
+                  ToolbarButton(
+                    icon: Icons.format_italic,
+                    tooltip: 'Cursiva',
+                    active: contextState.italic,
+                    onPressed: () => onToggle('italic', !contextState.italic),
+                  ),
+                  ToolbarButton(
+                    icon: Icons.format_underlined,
+                    tooltip: 'Subrayado',
+                    active: contextState.underline,
+                    onPressed: () =>
+                        onToggle('underline', !contextState.underline),
+                  ),
+                  ToolbarButton(
+                    icon: Icons.strikethrough_s,
+                    tooltip: 'Tachado',
+                    active: contextState.strikethrough,
+                    onPressed: () =>
+                        onToggle('strikethrough', !contextState.strikethrough),
+                  ),
+                ],
               ),
-              ToolbarButton(
-                icon: Icons.format_align_center,
-                tooltip: 'Centrar',
-                active: contextState.alignment == 'center',
-                onPressed: () => onAlignment('center'),
+              const ToolbarDivider(),
+              PopupMenuButton<int?>(
+                key: const ValueKey('text-color-menu'),
+                tooltip: 'Color de texto',
+                onSelected: onColor,
+                itemBuilder: (_) => _colors
+                    .map(
+                      (color) => PopupMenuItem(
+                        value: color,
+                        child: _colorChoice(color),
+                      ),
+                    )
+                    .toList(),
+                icon: const Icon(Icons.format_color_text),
               ),
-              ToolbarButton(
-                icon: Icons.format_align_right,
-                tooltip: 'Alinear a la derecha',
-                active: contextState.alignment == 'right',
-                onPressed: () => onAlignment('right'),
+              PopupMenuButton<int?>(
+                key: const ValueKey('text-highlight-menu'),
+                tooltip: 'Resaltado',
+                onSelected: (value) => onToggle('highlight', value),
+                itemBuilder: (_) => _highlights
+                    .map(
+                      (color) => PopupMenuItem(
+                        value: color,
+                        child: _colorChoice(color),
+                      ),
+                    )
+                    .toList(),
+                icon: const Icon(Icons.highlight),
               ),
-              ToolbarButton(
-                icon: Icons.format_align_justify,
-                tooltip: 'Justificar',
-                active: contextState.alignment == 'justify',
-                onPressed: () => onAlignment('justify'),
+              const ToolbarDivider(),
+              PopupMenuButton<double>(
+                key: const ValueKey('font-size-menu'),
+                tooltip: 'Tamaño de fuente',
+                onSelected: onSize,
+                itemBuilder: (_) => [12, 14, 16, 18, 24, 32]
+                    .map(
+                      (size) => PopupMenuItem(
+                        value: size.toDouble(),
+                        child: Text('${size}px'),
+                      ),
+                    )
+                    .toList(),
+                icon: const Icon(Icons.format_size),
+              ),
+              const ToolbarDivider(),
+              ToolbarGroup(
+                children: [
+                  ToolbarButton(
+                    icon: Icons.format_align_left,
+                    tooltip: 'Alinear a la izquierda',
+                    active: contextState.alignment == 'left',
+                    onPressed: () => onAlignment('left'),
+                  ),
+                  ToolbarButton(
+                    icon: Icons.format_align_center,
+                    tooltip: 'Centrar',
+                    active: contextState.alignment == 'center',
+                    onPressed: () => onAlignment('center'),
+                  ),
+                  ToolbarButton(
+                    icon: Icons.format_align_right,
+                    tooltip: 'Alinear a la derecha',
+                    active: contextState.alignment == 'right',
+                    onPressed: () => onAlignment('right'),
+                  ),
+                  ToolbarButton(
+                    icon: Icons.format_align_justify,
+                    tooltip: 'Justificar',
+                    active: contextState.alignment == 'justify',
+                    onPressed: () => onAlignment('justify'),
+                  ),
+                ],
               ),
             ],
           ),
-        ],
+        ),
       ),
     ),
   );

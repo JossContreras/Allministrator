@@ -74,6 +74,32 @@ void main() {
       expect(editable.controller.selection.baseOffset, 2);
     },
   );
+
+  testWidgets('mobile deletion updates text without using editor undo', (
+    tester,
+  ) async {
+    final session = _session(text: 'palabra');
+    final interaction = WorkspaceInteractionController()
+      ..dispatch(const StartEditingIntent(blockId: 'text'));
+    await tester.pumpWidget(_harness(session, interaction));
+    await tester.pump();
+
+    final field = find.byType(TextField);
+    await tester.tap(field);
+    final editable = tester.widget<EditableText>(find.byType(EditableText));
+    editable.controller.selection = const TextSelection.collapsed(offset: 7);
+    tester.testTextInput.updateEditingValue(
+      const TextEditingValue(
+        text: 'palabr',
+        selection: TextSelection.collapsed(offset: 6),
+      ),
+    );
+    await tester.pump();
+
+    expect((session.blocks.single as TextBlock).plainText, 'palabr');
+    expect(editable.controller.selection.baseOffset, 6);
+    expect(session.canUndo, isTrue);
+  });
 }
 
 Widget _harness(

@@ -1,6 +1,8 @@
 import 'package:allministrator/core/utils/uuid_generator.dart';
 import 'package:allministrator/domain/blocks/blocks.dart';
+import 'package:allministrator/app/theme/app_radius.dart';
 import 'package:allministrator/domain/editing/workspace_editor_session.dart';
+import 'package:allministrator/domain/entities/workspace_page.dart';
 import 'package:allministrator/domain/interaction/interaction.dart';
 import 'package:flutter/material.dart';
 
@@ -11,6 +13,7 @@ class WorkspaceBlockActions extends StatelessWidget {
     required this.interaction,
     required this.onReplaceImage,
     required this.onEditImageDetails,
+    required this.onExtractImageText,
     required this.onReplaceAttachment,
     required this.onOpenAttachment,
     required this.onEditAttachmentDetails,
@@ -24,6 +27,7 @@ class WorkspaceBlockActions extends StatelessWidget {
   final WorkspaceInteractionController interaction;
   final Future<void> Function(ImageBlock block) onReplaceImage;
   final Future<void> Function(ImageBlock block) onEditImageDetails;
+  final Future<void> Function(ImageBlock block) onExtractImageText;
   final Future<void> Function(AttachmentBlock block) onReplaceAttachment;
   final Future<void> Function(AttachmentBlock block) onOpenAttachment;
   final Future<void> Function(AttachmentBlock block) onEditAttachmentDetails;
@@ -40,7 +44,7 @@ class WorkspaceBlockActions extends StatelessWidget {
     return Material(
       elevation: 3,
       color: Theme.of(context).colorScheme.surfaceContainerHigh,
-      borderRadius: BorderRadius.circular(10),
+      borderRadius: BorderRadius.circular(AppRadius.small),
       child: SingleChildScrollView(
         scrollDirection: Axis.horizontal,
         child: Row(
@@ -72,14 +76,28 @@ class WorkspaceBlockActions extends StatelessWidget {
             ],
             if (block.supports(BlockCapability.movable)) ...[
               _button(
-                tooltip: 'Mover arriba',
-                icon: Icons.keyboard_arrow_up,
-                onPressed: () => session.moveBlock(block.id, -1),
+                tooltip: session.page.layoutType == WorkspaceLayoutType.canvas
+                    ? 'Enviar una capa atrás'
+                    : 'Mover arriba',
+                icon: session.page.layoutType == WorkspaceLayoutType.canvas
+                    ? Icons.flip_to_back
+                    : Icons.keyboard_arrow_up,
+                onPressed: () =>
+                    session.page.layoutType == WorkspaceLayoutType.canvas
+                    ? session.changeCanvasZOrder(block.id, -1)
+                    : session.moveBlock(block.id, -1),
               ),
               _button(
-                tooltip: 'Mover abajo',
-                icon: Icons.keyboard_arrow_down,
-                onPressed: () => session.moveBlock(block.id, 1),
+                tooltip: session.page.layoutType == WorkspaceLayoutType.canvas
+                    ? 'Traer una capa adelante'
+                    : 'Mover abajo',
+                icon: session.page.layoutType == WorkspaceLayoutType.canvas
+                    ? Icons.flip_to_front
+                    : Icons.keyboard_arrow_down,
+                onPressed: () =>
+                    session.page.layoutType == WorkspaceLayoutType.canvas
+                    ? session.changeCanvasZOrder(block.id, 1)
+                    : session.moveBlock(block.id, 1),
               ),
             ],
             if (block is TextBlock && session.canMergeTextWithNext(block.id))
@@ -165,6 +183,10 @@ class WorkspaceBlockActions extends StatelessWidget {
       PopupMenuItem(value: 'image-size-medium', child: Text('Tamaño mediano')),
       PopupMenuItem(value: 'image-size-large', child: Text('Tamaño grande')),
       PopupMenuItem(value: 'image-details', child: Text('Alt text y caption')),
+      PopupMenuItem(
+        value: 'image-extract-text',
+        child: Text('Extraer texto (OCR)'),
+      ),
       PopupMenuItem(value: 'image-replace', child: Text('Reemplazar imagen')),
     ],
     DividerBlock() => const [
@@ -229,6 +251,10 @@ class WorkspaceBlockActions extends StatelessWidget {
       }
       if (option == 'image-replace') {
         onReplaceImage(value);
+        return;
+      }
+      if (option == 'image-extract-text') {
+        onExtractImageText(value);
         return;
       }
       final alignment = switch (option) {

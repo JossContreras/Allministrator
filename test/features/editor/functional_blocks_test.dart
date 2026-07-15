@@ -31,6 +31,10 @@ void main() {
     );
     await tester.pump();
 
+    final checkboxCenter = tester.getCenter(find.byType(Checkbox));
+    final textCenter = tester.getCenter(find.byType(TextField).first);
+    expect((checkboxCenter.dy - textCenter.dy).abs(), lessThan(2));
+
     await tester.enterText(find.byType(TextField).first, 'Tarea real');
     await tester.tap(find.byType(Checkbox));
     await tester.pump();
@@ -243,6 +247,7 @@ Widget _widgetHarness(
                     interaction: interaction,
                     onReplaceImage: (_) async {},
                     onEditImageDetails: (_) async {},
+                    onExtractImageText: (_) async {},
                     onReplaceAttachment: (_) async {},
                     onOpenAttachment: (_) async {},
                     onEditAttachmentDetails: (_) async {},

@@ -1,4 +1,5 @@
 import 'package:allministrator/domain/interaction/interaction.dart';
+import 'package:allministrator/app/theme/app_motion.dart';
 import 'package:allministrator/features/editor/presentation/interaction/geometry_reporting.dart';
 import 'package:allministrator/features/editor/presentation/interaction/platform_input_adapters.dart';
 import 'package:flutter/foundation.dart';
@@ -30,6 +31,8 @@ class WorkspaceSurface extends StatelessWidget {
     this.overlayController,
     this.viewportController,
     this.isBlockResizable,
+    this.workspaceExtent,
+    this.inkLayer,
     super.key,
   });
 
@@ -48,6 +51,8 @@ class WorkspaceSurface extends StatelessWidget {
   final InteractionOverlayController? overlayController;
   final WorkspaceViewportController? viewportController;
   final bool Function(String blockId)? isBlockResizable;
+  final Size? workspaceExtent;
+  final Widget? inkLayer;
 
   @override
   Widget build(BuildContext context) {
@@ -77,8 +82,12 @@ class WorkspaceSurface extends StatelessWidget {
                 maxWidth: double.infinity,
                 maxHeight: double.infinity,
                 child: SizedBox(
-                  width: constraints.maxWidth / camera.zoom,
-                  height: constraints.maxHeight / camera.zoom,
+                  width:
+                      workspaceExtent?.width ??
+                      constraints.maxWidth / camera.zoom,
+                  height:
+                      workspaceExtent?.height ??
+                      constraints.maxHeight / camera.zoom,
                   child: content,
                 ),
               ),
@@ -97,6 +106,7 @@ class WorkspaceSurface extends StatelessWidget {
       fit: StackFit.expand,
       children: [
         ContentLayer(child: transformedContent),
+        ?inkLayer,
         DecorationLayer(
           registry: registry,
           interaction: interaction,
@@ -107,7 +117,6 @@ class WorkspaceSurface extends StatelessWidget {
           interaction: interaction,
           debugGeometry: kDebugMode && (_geometryDebugEnabled || debugGeometry),
           overlayController: overlayController,
-          transientOverlay: transientOverlay,
         ),
         ModalLayer(
           registry: registry,
@@ -116,16 +125,26 @@ class WorkspaceSurface extends StatelessWidget {
         ),
       ],
     );
-    return InteractionLayer(
-      registry: registry,
-      interaction: interaction,
-      workspaceId: workspaceId,
-      pageId: pageId,
-      scrollController: scrollController,
-      inputDispatcher: inputDispatcher,
-      viewportController: viewportController,
-      isBlockResizable: isBlockResizable,
-      child: layers,
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        InteractionLayer(
+          registry: registry,
+          interaction: interaction,
+          workspaceId: workspaceId,
+          pageId: pageId,
+          scrollController: scrollController,
+          inputDispatcher: inputDispatcher,
+          viewportController: viewportController,
+          isBlockResizable: isBlockResizable,
+          isCanvas: workspaceExtent != null,
+          child: layers,
+        ),
+        // Transient toolbars must be the last interactive layer. Keeping them
+        // outside InteractionLayer also prevents a toolbar tap from being
+        // interpreted as a tap on the document or Canvas underneath it.
+        ?transientOverlay,
+      ],
     );
   }
 }
@@ -178,6 +197,7 @@ class InteractionLayer extends StatelessWidget {
     this.inputDispatcher,
     this.viewportController,
     this.isBlockResizable,
+    this.isCanvas = false,
     required this.child,
     super.key,
   });
@@ -190,6 +210,7 @@ class InteractionLayer extends StatelessWidget {
   final InputDispatcher? inputDispatcher;
   final WorkspaceViewportController? viewportController;
   final bool Function(String blockId)? isBlockResizable;
+  final bool isCanvas;
   final Widget child;
   static const _autoScrollPolicy = DragAutoScrollPolicy();
 
@@ -197,47 +218,70 @@ class InteractionLayer extends StatelessWidget {
   Widget build(BuildContext context) => _ViewportGestureLayer(
     controller: viewportController,
     interaction: interaction,
-    child: Listener(
-      behavior: HitTestBehavior.translucent,
-      onPointerDown: (event) => _updatePointer(event, isDown: true),
-      onPointerMove: (event) => _updatePointer(event, isDown: true),
-      onPointerUp: (event) => _updatePointer(event, isDown: false),
-      onPointerCancel: (event) =>
-          _dispatchPointer(event, NormalizedInputEventType.pointerCancel),
-      child: Stack(
-        fit: StackFit.expand,
-        children: [
-          child,
-          AnimatedBuilder(
-            animation: Listenable.merge([
-              registry,
-              interaction.blockStateRevision,
-            ]),
-            builder: (context, _) {
-              final viewport = registry.viewport;
-              if (viewport == null) return const SizedBox.shrink();
-              final selectedId = interaction.context.selectedBlock;
-              final selected = selectedId == null
-                  ? null
-                  : registry.geometryFor(selectedId);
-              return Stack(
-                children: [
-                  for (final entry in registry.visibleBlocks)
-                    _handleTarget(context, entry, viewport),
-                  if (selected != null &&
-                      interaction.context.editingBlock == null &&
-                      interaction.context.activeSession is! ResizeSession &&
-                      (isBlockResizable?.call(selected.blockId) ?? false))
-                    for (final handle in ResizeHandle.values)
-                      _resizeHandleTarget(context, selected, viewport, handle),
-                ],
-              );
-            },
-          ),
-        ],
+    child: MouseRegion(
+      cursor: _cursorFor(interaction.context.activeTool),
+      child: Listener(
+        behavior: HitTestBehavior.translucent,
+        onPointerDown: (event) => _updatePointer(event, isDown: true),
+        onPointerMove: (event) => _updatePointer(event, isDown: true),
+        onPointerUp: (event) => _updatePointer(event, isDown: false),
+        onPointerCancel: (event) =>
+            _dispatchPointer(event, NormalizedInputEventType.pointerCancel),
+        onPointerHover: (event) =>
+            _dispatchPointer(event, NormalizedInputEventType.stylusHover),
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            child,
+            AnimatedBuilder(
+              animation: Listenable.merge([
+                registry,
+                interaction.blockStateRevision,
+              ]),
+              builder: (context, _) {
+                final viewport = registry.viewport;
+                if (viewport == null) return const SizedBox.shrink();
+                final selectedId = interaction.context.selectedBlock;
+                final selected = selectedId == null
+                    ? null
+                    : registry.geometryFor(selectedId);
+                return Stack(
+                  children: [
+                    for (final entry in registry.visibleBlocks)
+                      _handleTarget(context, entry, viewport),
+                    if (selected != null &&
+                        interaction.context.editingBlock == null &&
+                        interaction.context.activeSession is! ResizeSession &&
+                        (isBlockResizable?.call(selected.blockId) ?? false))
+                      for (final handle in ResizeHandle.values)
+                        _resizeHandleTarget(
+                          context,
+                          selected,
+                          viewport,
+                          handle,
+                        ),
+                  ],
+                );
+              },
+            ),
+          ],
+        ),
       ),
     ),
   );
+
+  MouseCursor _cursorFor(WorkspaceTool tool) => switch (tool) {
+    WorkspaceTool.hand => SystemMouseCursors.grab,
+    WorkspaceTool.pen ||
+    WorkspaceTool.highlighter ||
+    WorkspaceTool.eraser ||
+    WorkspaceTool.inkLasso ||
+    WorkspaceTool.line ||
+    WorkspaceTool.arrow ||
+    WorkspaceTool.rectangle ||
+    WorkspaceTool.ellipse => SystemMouseCursors.precise,
+    _ => MouseCursor.defer,
+  };
 
   void _updatePointer(PointerEvent event, {required bool isDown}) {
     final type = switch (event) {
@@ -249,7 +293,8 @@ class InteractionLayer extends StatelessWidget {
     final activeSession = interaction.context.activeSession;
     final wasTransientTransform =
         activeSession is MarqueeSelectionSession ||
-        activeSession is ResizeSession;
+        activeSession is ResizeSession ||
+        activeSession is InkSession;
     final wasViewportGesture = viewportController?.isGestureActive ?? false;
     _dispatchPointer(event, type, isDown: isDown);
     if (event is PointerUpEvent &&
@@ -378,6 +423,18 @@ class InteractionLayer extends StatelessWidget {
                 ),
               );
             },
+            onPanStart: isCanvas
+                ? (_) {
+                    inputDispatcher?.dispatch(
+                      const GestureInputAdapter().longPressStart(
+                        workspaceId: workspaceId,
+                        pageId: pageId,
+                        target: BlockHandleHitTarget(entry.blockId),
+                        regionId: 'block-handle',
+                      ),
+                    );
+                  }
+                : null,
           ),
         ),
       ),
@@ -471,6 +528,12 @@ class _ViewportGestureLayerState extends State<_ViewportGestureLayer> {
   void _pointerDown(PointerDownEvent event) {
     final controller = widget.controller;
     if (controller == null) return;
+    if (widget.interaction.context.activeTool == WorkspaceTool.hand) {
+      _mousePanPointer = event.pointer;
+      _lastMousePosition = event.localPosition;
+      controller.beginGesture();
+      return;
+    }
     if (event.kind == PointerDeviceKind.mouse &&
         event.buttons == kMiddleMouseButton) {
       _mousePanPointer = event.pointer;
@@ -574,7 +637,6 @@ class OverlayLayer extends StatelessWidget {
     required this.interaction,
     required this.debugGeometry,
     this.overlayController,
-    this.transientOverlay,
     super.key,
   });
 
@@ -582,7 +644,6 @@ class OverlayLayer extends StatelessWidget {
   final WorkspaceInteractionController interaction;
   final bool debugGeometry;
   final InteractionOverlayController? overlayController;
-  final Widget? transientOverlay;
 
   @override
   Widget build(BuildContext context) => AnimatedBuilder(
@@ -600,7 +661,7 @@ class OverlayLayer extends StatelessWidget {
             child: TweenAnimationBuilder<double>(
               key: ValueKey(interaction.context.selectedBlock),
               tween: Tween(begin: 0, end: 1),
-              duration: const Duration(milliseconds: 140),
+              duration: AppMotion.fast,
               curve: Curves.easeOut,
               builder: (context, progress, _) => CustomPaint(
                 painter: _OverlayPainter(
@@ -618,7 +679,6 @@ class OverlayLayer extends StatelessWidget {
               ),
             ),
           ),
-          ?transientOverlay,
         ],
       );
     },
@@ -643,7 +703,8 @@ class ModalLayer extends StatelessWidget {
     return AnimatedBuilder(
       animation: Listenable.merge([registry, interaction.blockStateRevision]),
       builder: (context, _) {
-        if (interaction.context.activeSession is ResizeSession) {
+        if (interaction.context.activeSession is ResizeSession ||
+            interaction.context.editingBlock != null) {
           return const SizedBox.shrink();
         }
         final blockId = interaction.context.selectedBlock;

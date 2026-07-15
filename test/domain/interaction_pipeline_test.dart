@@ -55,6 +55,24 @@ void main() {
     expect(stylus.modifiers.shift, isTrue);
   });
 
+  test(
+    'a locked block remains selectable so it can be unlocked or deleted',
+    () {
+      const locked = BlockInteractionInfo(
+        isLocked: true,
+        capabilities: {
+          BlockCapability.selectable,
+          BlockCapability.editable,
+          BlockCapability.deletable,
+        },
+      );
+
+      expect(locked.supports(BlockCapability.selectable), isTrue);
+      expect(locked.supports(BlockCapability.editable), isFalse);
+      expect(locked.supports(BlockCapability.deletable), isFalse);
+    },
+  );
+
   test('resolver applies central interaction priorities', () {
     final empty = resolver.resolve(
       event: event(NormalizedInputEventType.tap),

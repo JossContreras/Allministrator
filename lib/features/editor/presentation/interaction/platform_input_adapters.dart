@@ -27,11 +27,14 @@ class PointerInputAdapter {
     globalPosition: SpatialPoint(event.position.dx, event.position.dy),
     localPosition: SpatialPoint(event.localPosition.dx, event.localPosition.dy),
     pressure: event.pressure,
+    tilt: SpatialPoint(event.tilt, 0),
+    azimuth: event.orientation,
     buttons: event.buttons,
     hitTarget: hit?.target,
     targetBlockId: hit?.target.blockId,
     targetRegionId: hit?.region?.id,
     isPrimary: event.down || event.kind != PointerDeviceKind.mouse,
+    isSynthesized: event.synthesized,
     modifiers: _modifiers(),
   );
 

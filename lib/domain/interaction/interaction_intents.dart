@@ -3,6 +3,8 @@ import 'package:allministrator/domain/interaction/drag_session.dart';
 import 'package:allministrator/domain/interaction/interaction_models.dart';
 import 'package:allministrator/domain/interaction/spatial_geometry.dart';
 import 'package:allministrator/domain/interaction/transformation_engine.dart';
+import 'package:allministrator/domain/ink/ink_models.dart';
+import 'package:allministrator/domain/ink/ink_session.dart';
 
 abstract class InteractionIntent {
   const InteractionIntent();
@@ -71,6 +73,12 @@ class ClearSelectionIntent extends InteractionIntent {
   });
 
   final InteractionCancellationReason reason;
+}
+
+class SelectInkElementsIntent extends InteractionIntent {
+  const SelectInkElementsIntent(this.elementIds);
+
+  final List<Uuid> elementIds;
 }
 
 class StartEditingIntent extends InteractionIntent {
@@ -145,6 +153,13 @@ class CommitDragIntent extends InteractionIntent {
   final DropTarget dropTarget;
 }
 
+class CommitCanvasDragIntent extends InteractionIntent {
+  const CommitCanvasDragIntent({required this.blockIds, required this.delta});
+
+  final List<Uuid> blockIds;
+  final SpatialPoint delta;
+}
+
 class ResizeIntent extends InteractionIntent {
   const ResizeIntent(this.blockId);
 
@@ -206,6 +221,46 @@ class RotateIntent extends InteractionIntent {
 
 class StartHandwritingIntent extends InteractionIntent {
   const StartHandwritingIntent();
+}
+
+class BeginInkIntent extends InteractionIntent {
+  const BeginInkIntent({
+    required this.correlationId,
+    required this.pointerId,
+    required this.tool,
+    required this.point,
+    required this.brush,
+    this.shapeKind,
+    this.anchor,
+  });
+
+  final String correlationId;
+  final int pointerId;
+  final WorkspaceTool tool;
+  final InkPoint point;
+  final InkBrushStyle brush;
+  final InkShapeKind? shapeKind;
+  final AnnotationAnchor? anchor;
+}
+
+class UpdateInkIntent extends InteractionIntent {
+  const UpdateInkIntent({
+    required this.point,
+    this.affectedElementIds = const [],
+  });
+
+  final InkPoint point;
+  final List<String> affectedElementIds;
+}
+
+class CommitInkIntent extends InteractionIntent {
+  const CommitInkIntent(this.session);
+
+  final InkSession session;
+}
+
+class CancelInkIntent extends InteractionIntent {
+  const CancelInkIntent();
 }
 
 class PanViewportIntent extends InteractionIntent {

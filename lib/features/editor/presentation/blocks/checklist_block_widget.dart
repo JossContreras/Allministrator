@@ -1,5 +1,6 @@
 import 'package:allministrator/core/utils/uuid_generator.dart';
 import 'package:allministrator/domain/blocks/blocks.dart';
+import 'package:allministrator/app/theme/app_motion.dart';
 import 'package:allministrator/domain/interaction/interaction.dart';
 import 'package:allministrator/features/editor/presentation/blocks/block_frame.dart';
 import 'package:allministrator/features/editor/presentation/blocks/block_render_context.dart';
@@ -103,7 +104,7 @@ class _ChecklistBlockWidgetState extends State<ChecklistBlockWidget> {
           return KeyEventResult.ignored;
         },
         child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
+          crossAxisAlignment: CrossAxisAlignment.center,
           children: [
             widget.renderContext.region(
               id: 'checkbox-${item.id}',
@@ -113,7 +114,7 @@ class _ChecklistBlockWidgetState extends State<ChecklistBlockWidget> {
               ),
               priority: 30,
               child: AnimatedSwitcher(
-                duration: const Duration(milliseconds: 150),
+                duration: AppMotion.fast,
                 child: Checkbox(
                   key: ValueKey(item.isChecked),
                   value: item.isChecked,
@@ -144,6 +145,10 @@ class _ChecklistBlockWidgetState extends State<ChecklistBlockWidget> {
                     border: InputBorder.none,
                     hintText: 'Elemento',
                     isDense: true,
+                    contentPadding: EdgeInsets.symmetric(
+                      horizontal: 4,
+                      vertical: 12,
+                    ),
                   ),
                   style: TextStyle(
                     decoration: item.isChecked

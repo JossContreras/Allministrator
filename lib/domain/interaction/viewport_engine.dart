@@ -145,6 +145,47 @@ class WorkspaceViewportController extends ChangeNotifier {
 
   void reset() => _setCamera(const WorkspaceCamera());
 
+  void fitBounds(
+    SpatialRect bounds, {
+    required double viewportWidth,
+    required double viewportHeight,
+    double padding = 48,
+  }) {
+    if (bounds.isEmpty ||
+        viewportWidth <= padding * 2 ||
+        viewportHeight <= padding * 2) {
+      return;
+    }
+    final zoom = ((viewportWidth - padding * 2) / bounds.width)
+        .clamp(_state.minZoom, _state.maxZoom)
+        .toDouble();
+    final verticalZoom = ((viewportHeight - padding * 2) / bounds.height)
+        .clamp(_state.minZoom, _state.maxZoom)
+        .toDouble();
+    final nextZoom = zoom < verticalZoom ? zoom : verticalZoom;
+    final translation = SpatialPoint(
+      viewportWidth / 2 - bounds.center.x * nextZoom,
+      viewportHeight / 2 - bounds.center.y * nextZoom,
+    );
+    _setCamera(WorkspaceCamera(zoom: nextZoom, translation: translation));
+  }
+
+  void centerOn(
+    SpatialRect bounds, {
+    required double viewportWidth,
+    required double viewportHeight,
+  }) {
+    if (bounds.isEmpty) return;
+    _setCamera(
+      camera.copyWith(
+        translation: SpatialPoint(
+          viewportWidth / 2 - bounds.center.x * camera.zoom,
+          viewportHeight / 2 - bounds.center.y * camera.zoom,
+        ),
+      ),
+    );
+  }
+
   void _setCamera(WorkspaceCamera next) {
     if (next == camera) return;
     _state = _state.copyWith(camera: next);

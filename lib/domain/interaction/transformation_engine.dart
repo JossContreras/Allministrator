@@ -193,6 +193,33 @@ class TransformationEngine {
     return result;
   }
 
+  Map<String, SpatialPoint> distributeHorizontally(
+    List<String> visualOrder,
+    Map<String, SpatialRect> bounds,
+  ) {
+    final ordered = visualOrder.where(bounds.containsKey).toList()
+      ..sort((a, b) => bounds[a]!.left.compareTo(bounds[b]!.left));
+    if (ordered.length < 3) return const {};
+    final first = bounds[ordered.first]!;
+    final last = bounds[ordered.last]!;
+    final totalWidth = ordered.fold<double>(
+      0,
+      (sum, id) => sum + bounds[id]!.width,
+    );
+    final gap = math.max(
+      0,
+      (last.right - first.left - totalWidth) / (ordered.length - 1),
+    );
+    var cursor = first.left;
+    final result = <String, SpatialPoint>{};
+    for (final id in ordered) {
+      final rect = bounds[id]!;
+      result[id] = SpatialPoint(cursor - rect.left, 0);
+      cursor += rect.width + gap;
+    }
+    return result;
+  }
+
   SpatialPoint _alignmentDelta(
     SpatialRect rect,
     SpatialRect union,

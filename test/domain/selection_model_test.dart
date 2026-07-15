@@ -150,6 +150,34 @@ void main() {
     },
   );
 
+  test('marquee only starts when its explicit mode is enabled', () {
+    var enabled = false;
+    final resolver = InteractionResolver(canStartMarquee: () => enabled);
+    final event = NormalizedInputEvent(
+      eventId: 'pointer-down',
+      workspaceId: 'workspace',
+      pageId: 'page',
+      type: NormalizedInputEventType.pointerDown,
+      deviceType: InputDeviceType.touch,
+      timestamp: DateTime.utc(2026),
+      pointerId: 1,
+      globalPosition: const SpatialPoint(20, 30),
+      hitTarget: const EmptyAreaHitTarget(),
+    );
+
+    expect(
+      resolver.resolve(event: event, context: const InteractionContext()).kind,
+      InteractionIntentResultKind.ignored,
+    );
+    enabled = true;
+    expect(
+      resolver
+          .resolve(event: event, context: const InteractionContext())
+          .intent,
+      isA<BeginMarqueeSelectionIntent>(),
+    );
+  });
+
   test(
     'Delete delegates to text editing and targets blocks outside editing',
     () {

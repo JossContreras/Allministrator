@@ -8,7 +8,7 @@ void main() {
       'schemaVersion': 1,
       'text': 'uno\n\ndos\n',
     });
-    expect(content.schemaVersion, 3);
+    expect(content.schemaVersion, DocumentContent.currentSchemaVersion);
     expect(content.structured.nodes.length, 4);
     expect(content.text, 'uno\n\ndos\n');
   });

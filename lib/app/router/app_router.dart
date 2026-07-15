@@ -1,10 +1,10 @@
 import 'package:allministrator/features/about/presentation/about_screen.dart';
-import 'package:allministrator/features/backups/presentation/backups_screen.dart';
 import 'package:allministrator/features/documents/presentation/documents_screen.dart';
+import 'package:allministrator/features/documents/presentation/category_catalog.dart';
 import 'package:allministrator/features/documents/domain/repositories/document_repository.dart';
 import 'package:allministrator/features/editor/presentation/document_editor_screen.dart';
-import 'package:allministrator/features/folders/presentation/folders_screen.dart';
 import 'package:allministrator/features/favorites/presentation/favorites_screen.dart';
+import 'package:allministrator/features/home/presentation/home_screen.dart';
 import 'package:allministrator/features/recent/presentation/recent_screen.dart';
 import 'package:allministrator/features/settings/presentation/settings_screen.dart';
 import 'package:allministrator/features/tags/presentation/tags_screen.dart';
@@ -13,26 +13,67 @@ import 'package:allministrator/features/trash/presentation/trash_screen.dart';
 import 'package:go_router/go_router.dart';
 
 GoRouter createAppRouter(DocumentRepository repository) => GoRouter(
-  initialLocation: '/documents',
+  initialLocation: '/home',
   routes: [
-    GoRoute(path: '/', redirect: (_, _) => '/documents'),
+    GoRoute(path: '/', redirect: (_, _) => '/home'),
+    GoRoute(
+      path: '/home',
+      builder: (_, _) => HomeScreen(repository: repository),
+    ),
     GoRoute(
       path: '/documents',
       builder: (_, _) => DocumentsScreen(repository: repository),
     ),
-    GoRoute(path: '/recent', builder: (_, _) => const RecentScreen()),
+    GoRoute(
+      path: '/canvas',
+      builder: (_, _) => DocumentsBrowserScreen(
+        repository: repository,
+        title: 'Canvas',
+        selectedPath: '/canvas',
+        filter: DocumentsBrowserFilter.canvas,
+      ),
+    ),
+    GoRoute(
+      path: '/library',
+      builder: (_, _) => DocumentsBrowserScreen(
+        repository: repository,
+        title: 'Todos los archivos',
+        selectedPath: '/library',
+        filter: DocumentsBrowserFilter.all,
+      ),
+    ),
+    GoRoute(
+      path: '/recent',
+      builder: (_, _) => RecentScreen(repository: repository),
+    ),
     GoRoute(
       path: '/favorites',
       builder: (_, _) => FavoritesScreen(repository: repository),
     ),
-    GoRoute(path: '/folders', builder: (_, _) => const FoldersScreen()),
-    GoRoute(path: '/tags', builder: (_, _) => const TagsScreen()),
-    GoRoute(path: '/templates', builder: (_, _) => const TemplatesScreen()),
+    GoRoute(
+      path: '/tags',
+      builder: (_, _) => TagsScreen(repository: repository),
+    ),
+    GoRoute(
+      path: '/category/:categoryId',
+      builder: (_, state) {
+        final categoryId = state.pathParameters['categoryId'];
+        return DocumentsBrowserScreen(
+          repository: repository,
+          title: CategoryCatalog.resolve(categoryId).name,
+          selectedPath: '/tags',
+          initialCategoryId: categoryId,
+        );
+      },
+    ),
+    GoRoute(
+      path: '/templates',
+      builder: (_, _) => TemplatesScreen(repository: repository),
+    ),
     GoRoute(
       path: '/trash',
       builder: (_, _) => TrashScreen(repository: repository),
     ),
-    GoRoute(path: '/backups', builder: (_, _) => const BackupsScreen()),
     GoRoute(path: '/settings', builder: (_, _) => const SettingsScreen()),
     GoRoute(path: '/about', builder: (_, _) => const AboutScreen()),
     GoRoute(

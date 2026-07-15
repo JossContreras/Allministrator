@@ -1,4 +1,5 @@
 import 'package:allministrator/domain/blocks/blocks.dart';
+import 'package:allministrator/domain/entities/workspace_page.dart';
 import 'package:allministrator/core/utils/uuid_generator.dart';
 import 'package:allministrator/domain/interaction/interaction.dart';
 import 'package:allministrator/features/editor/presentation/blocks/block_frame.dart';
@@ -137,7 +138,14 @@ class _TextBlockWidgetState extends State<TextBlockWidget> {
 
   @override
   Widget build(BuildContext context) {
-    final readOnly = widget.renderContext.readOnly || _block.isLocked;
+    // On canvas a first tap selects a block; a second tap enters text editing.
+    // This keeps moving text as direct as moving an image.
+    final readOnly =
+        widget.renderContext.readOnly ||
+        _block.isLocked ||
+        (!widget.renderContext.isEditing &&
+            widget.renderContext.session.page.layoutType ==
+                WorkspaceLayoutType.canvas);
     return BlockFrame(
       block: _block,
       geometryRegistry: widget.renderContext.geometryRegistry,
@@ -170,9 +178,15 @@ class _TextBlockWidgetState extends State<TextBlockWidget> {
                   vertical: 8,
                 ),
               ),
-              onTap: readOnly
+              onTap: widget.renderContext.readOnly || _block.isLocked
                   ? null
                   : () {
+                      if (!widget.renderContext.isSelected) {
+                        widget.renderContext.interaction.dispatch(
+                          SelectBlockIntent(_block.id),
+                        );
+                        return;
+                      }
                       final dispatcher = widget.renderContext.inputDispatcher;
                       if (dispatcher != null) {
                         dispatcher.dispatch(

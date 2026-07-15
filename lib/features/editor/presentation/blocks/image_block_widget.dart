@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:allministrator/app/theme/app_radius.dart';
 import 'package:allministrator/domain/blocks/blocks.dart';
 import 'package:allministrator/domain/interaction/interaction.dart';
 import 'package:allministrator/features/editor/presentation/blocks/block_frame.dart';
@@ -55,13 +56,15 @@ class ImageBlockWidget extends StatelessWidget {
                     onTap: renderContext.readOnly
                         ? null
                         : () {
+                            // Touching an image is exclusively a selection
+                            // action. This exposes its frame and transform
+                            // handles without ever interrupting a move with a
+                            // full-screen preview.
                             if (!renderContext.isSelected) {
                               renderContext.interaction.dispatch(
                                 SelectBlockIntent(block.id),
                               );
-                              return;
                             }
-                            _openPreview(context, path);
                           },
                     child: _content(context, path),
                   ),
@@ -91,7 +94,7 @@ class ImageBlockWidget extends StatelessWidget {
         height: 150,
         decoration: BoxDecoration(
           color: Theme.of(context).colorScheme.errorContainer,
-          borderRadius: BorderRadius.circular(8),
+          borderRadius: BorderRadius.circular(AppRadius.small),
         ),
         alignment: Alignment.center,
         child: const Column(
@@ -105,7 +108,7 @@ class ImageBlockWidget extends StatelessWidget {
       );
     }
     return ClipRRect(
-      borderRadius: BorderRadius.circular(8),
+      borderRadius: BorderRadius.circular(AppRadius.small),
       child: Image.file(
         File(path),
         fit: BoxFit.contain,
@@ -124,27 +127,6 @@ class ImageBlockWidget extends StatelessWidget {
           alignment: Alignment.center,
           child: const Text('No se pudo mostrar la imagen'),
         ),
-      ),
-    );
-  }
-
-  Future<void> _openPreview(BuildContext context, String? path) async {
-    if (path == null || !File(path).existsSync()) return;
-    renderContext.interaction.dispatch(
-      OpenContextMenuIntent(blockId: block.id),
-    );
-    await showDialog<void>(
-      context: context,
-      builder: (context) => Dialog(
-        child: InteractiveViewer(
-          child: Image.file(File(path), fit: BoxFit.contain),
-        ),
-      ),
-    );
-    renderContext.interaction.dispatch(
-      const CancelInteractionIntent(
-        reason: InteractionCancellationReason.dialogClosed,
-        keepBlockSelected: true,
       ),
     );
   }

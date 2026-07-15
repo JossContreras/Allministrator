@@ -6,11 +6,16 @@ import 'package:allministrator/domain/interaction/interaction_models.dart';
 import 'package:allministrator/domain/interaction/normalized_input_event.dart';
 import 'package:allministrator/domain/interaction/spatial_geometry.dart';
 import 'package:allministrator/domain/interaction/workspace_hit_target.dart';
+import 'package:allministrator/domain/ink/ink_models.dart';
 
 typedef BlockInteractionInfoResolver =
     BlockInteractionInfo? Function(String blockId);
 typedef VisualBlockOrderResolver = List<String> Function();
 typedef BlockBoundsResolver = SpatialRect? Function(String blockId);
+typedef MarqueeActivationResolver = bool Function();
+typedef InkBrushResolver = InkBrushStyle Function(WorkspaceTool tool);
+typedef InkAnchorResolver =
+    AnnotationAnchor? Function(NormalizedInputEvent event);
 
 class BlockInteractionInfo {
   const BlockInteractionInfo({
@@ -21,8 +26,12 @@ class BlockInteractionInfo {
   final Set<BlockCapability> capabilities;
   final bool isLocked;
 
+  /// A locked block is still selectable.  Selection is how the user reaches
+  /// its contextual actions (most importantly, unlock and delete); only
+  /// mutations are disabled while it is locked.
   bool supports(BlockCapability capability) =>
-      !isLocked && capabilities.contains(capability);
+      capabilities.contains(capability) &&
+      (!isLocked || capability == BlockCapability.selectable);
 }
 
 /// Converts neutral input plus current context into an intention. It contains
@@ -32,11 +41,17 @@ class InteractionResolver {
     this.blockInfo,
     this.visualOrder,
     this.blockBounds,
+    this.canStartMarquee,
+    this.inkBrush,
+    this.inkAnchor,
   });
 
   final BlockInteractionInfoResolver? blockInfo;
   final VisualBlockOrderResolver? visualOrder;
   final BlockBoundsResolver? blockBounds;
+  final MarqueeActivationResolver? canStartMarquee;
+  final InkBrushResolver? inkBrush;
+  final InkAnchorResolver? inkAnchor;
 
   InteractionIntentResult resolve({
     required NormalizedInputEvent event,
@@ -75,7 +90,7 @@ class InteractionResolver {
           priority: InteractionPriority.nativeText,
         );
       }
-      if (_selectedBlockIds(context).isNotEmpty) {
+      if (_hasSelection(context)) {
         return const InteractionIntentResult.intent(
           DeleteSelectionIntent(),
           priority: InteractionPriority.viewport,
@@ -86,6 +101,51 @@ class InteractionResolver {
       return const InteractionIntentResult.intent(
         CancelInteractionIntent(reason: InteractionCancellationReason.explicit),
         priority: InteractionPriority.viewport,
+      );
+    }
+    if (event.type == NormalizedInputEventType.pointerDown &&
+        context.activeTool.startsInkSession &&
+        context.activeSession == null &&
+        event.workspacePosition != null &&
+        event.pointerId != null) {
+      final pressure = event.pressure;
+      return InteractionIntentResult.intent(
+        BeginInkIntent(
+          correlationId: event.eventId,
+          pointerId: event.pointerId!,
+          tool: context.activeTool,
+          point: InkPoint(
+            workspacePosition: event.workspacePosition!,
+            timestamp: Duration.zero,
+            pressure: pressure != null && pressure.isFinite
+                ? pressure.clamp(0, 1).toDouble()
+                : null,
+            tiltX: event.tilt?.x,
+            tiltY: event.tilt?.y,
+            azimuth: event.azimuth,
+            isCoalesced: event.metadata['coalesced'] == true,
+            isPredicted: event.metadata['predicted'] == true,
+          ),
+          brush:
+              inkBrush?.call(context.activeTool) ??
+              _defaultInkBrush(context.activeTool),
+          shapeKind: _shapeKind(context.activeTool),
+          anchor: inkAnchor?.call(event),
+        ),
+        priority: InteractionPriority.viewport,
+        target: target,
+      );
+    }
+    if (context.activeTool.startsInkSession &&
+        (_isActivation(event) ||
+            event.type == NormalizedInputEventType.longPressStart ||
+            event.type == NormalizedInputEventType.longPressMove ||
+            event.type == NormalizedInputEventType.longPressEnd)) {
+      return InteractionIntentResult.state(
+        InteractionIntentResultKind.consumed,
+        reason: 'explicit-ink-tool-owns-activation',
+        priority: InteractionPriority.viewport,
+        target: target,
       );
     }
     if (event.type == NormalizedInputEventType.longPressStart &&
@@ -214,6 +274,8 @@ class InteractionResolver {
     }
     if (target is EmptyAreaHitTarget &&
         event.type == NormalizedInputEventType.pointerDown &&
+        context.activeTool == WorkspaceTool.selection &&
+        (canStartMarquee?.call() ?? true) &&
         context.editingBlock == null &&
         context.activeSession == null &&
         event.globalPosition != null) {
@@ -297,4 +359,28 @@ class InteractionResolver {
         BlockSelection(:final blockId) => [blockId],
         _ => const [],
       };
+
+  bool _hasSelection(InteractionContext context) =>
+      _selectedBlockIds(context).isNotEmpty ||
+      switch (context.currentSelection) {
+        InkSelection(:final elementIds) => elementIds.isNotEmpty,
+        _ => false,
+      };
+
+  InkBrushStyle _defaultInkBrush(WorkspaceTool tool) => switch (tool) {
+    WorkspaceTool.highlighter => InkBrushStyle.highlighter(),
+    WorkspaceTool.line ||
+    WorkspaceTool.arrow ||
+    WorkspaceTool.rectangle ||
+    WorkspaceTool.ellipse => InkBrushStyle.shape(),
+    _ => InkBrushStyle.pen(),
+  };
+
+  InkShapeKind? _shapeKind(WorkspaceTool tool) => switch (tool) {
+    WorkspaceTool.line => InkShapeKind.line,
+    WorkspaceTool.arrow => InkShapeKind.arrow,
+    WorkspaceTool.rectangle => InkShapeKind.rectangle,
+    WorkspaceTool.ellipse => InkShapeKind.ellipse,
+    _ => null,
+  };
 }

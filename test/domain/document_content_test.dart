@@ -23,7 +23,7 @@ void main() {
 
     final restored = DocumentContent.fromJson(original.toJson());
 
-    expect(restored.schemaVersion, 3);
+    expect(restored.schemaVersion, DocumentContent.currentSchemaVersion);
     expect(restored.text, 'hola');
     expect(restored.data['marks'], ['bold']);
   });

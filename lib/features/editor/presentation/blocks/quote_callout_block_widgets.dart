@@ -1,4 +1,5 @@
 import 'package:allministrator/domain/blocks/blocks.dart';
+import 'package:allministrator/app/theme/app_radius.dart';
 import 'package:allministrator/domain/interaction/interaction.dart';
 import 'package:allministrator/features/editor/presentation/blocks/block_frame.dart';
 import 'package:allministrator/features/editor/presentation/blocks/block_render_context.dart';
@@ -220,7 +221,7 @@ class _CalloutBlockWidgetState extends State<CalloutBlockWidget> {
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
           color: colors.$1,
-          borderRadius: BorderRadius.circular(8),
+          borderRadius: BorderRadius.circular(AppRadius.small),
         ),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,

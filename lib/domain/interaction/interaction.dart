@@ -21,3 +21,4 @@ export 'spatial_geometry.dart';
 export 'workspace_hit_target.dart';
 export 'transformation_engine.dart';
 export 'viewport_engine.dart';
+export '../ink/ink.dart';

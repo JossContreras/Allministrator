@@ -1,4 +1,5 @@
 import 'package:allministrator/domain/blocks/blocks.dart';
+import 'package:allministrator/app/theme/app_radius.dart';
 import 'package:allministrator/domain/editing/code_language_catalog.dart';
 import 'package:allministrator/domain/interaction/interaction.dart';
 import 'package:allministrator/features/editor/presentation/blocks/block_frame.dart';
@@ -86,7 +87,7 @@ class _CodeBlockWidgetState extends State<CodeBlockWidget> {
       child: Container(
         decoration: BoxDecoration(
           color: surface,
-          borderRadius: BorderRadius.circular(8),
+          borderRadius: BorderRadius.circular(AppRadius.small),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,

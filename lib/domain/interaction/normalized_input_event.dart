@@ -142,4 +142,34 @@ class NormalizedInputEvent {
     isSynthesized: isSynthesized,
     metadata: metadata,
   );
+
+  NormalizedInputEvent withWorkspacePosition(SpatialPoint position) =>
+      NormalizedInputEvent(
+        eventId: eventId,
+        workspaceId: workspaceId,
+        pageId: pageId,
+        type: type,
+        deviceType: deviceType,
+        timestamp: timestamp,
+        pointerId: pointerId,
+        globalPosition: globalPosition,
+        workspacePosition: position,
+        localPosition: localPosition,
+        pressure: pressure,
+        tilt: tilt,
+        azimuth: azimuth,
+        buttons: buttons,
+        modifiers: modifiers,
+        scrollDelta: scrollDelta,
+        scaleDelta: scaleDelta,
+        rotationDelta: rotationDelta,
+        hitTarget: hitTarget,
+        targetBlockId: targetBlockId,
+        targetRegionId: targetRegionId,
+        key: key,
+        accessibilityAction: accessibilityAction,
+        isPrimary: isPrimary,
+        isSynthesized: isSynthesized,
+        metadata: metadata,
+      );
 }

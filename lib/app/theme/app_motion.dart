@@ -1,11 +1,11 @@
 import 'package:flutter/animation.dart';
 
 abstract final class AppMotion {
-  static const instant = Duration(milliseconds: 80),
-      fast = Duration(milliseconds: 140),
+  static const instant = Duration(milliseconds: 180),
+      fast = Duration(milliseconds: 180),
       normal = Duration(milliseconds: 240),
-      slow = Duration(milliseconds: 360),
-      emphasized = Duration(milliseconds: 480);
+      slow = Duration(milliseconds: 300),
+      emphasized = Duration(milliseconds: 300);
   static const enter = Curves.easeOutCubic,
       exit = Curves.easeInCubic,
       state = Curves.easeInOutCubic;

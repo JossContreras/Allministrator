@@ -1,6 +1,8 @@
 import 'package:allministrator/core/shared/identifiers.dart';
 import 'package:allministrator/core/utils/uuid_generator.dart';
 import 'package:allministrator/domain/blocks/blocks.dart';
+import 'package:allministrator/domain/ink/ink_models.dart';
+import 'canvas_layout.dart';
 
 enum WorkspaceLayoutType { document, canvas, whiteboard }
 
@@ -16,6 +18,8 @@ class WorkspacePage {
     required this.deletedAt,
     required this.version,
     required this.metadata,
+    this.canvasLayout,
+    this.inkLayer = const InkLayerState(),
   });
 
   final Uuid id;
@@ -28,6 +32,8 @@ class WorkspacePage {
   final DateTime? deletedAt;
   final int version;
   final JsonMap metadata;
+  final CanvasLayoutState? canvasLayout;
+  final InkLayerState inkLayer;
 
   List<BaseBlock> get orderedBlocks {
     final result = [...blocks];
@@ -46,6 +52,9 @@ class WorkspacePage {
     bool clearDeletedAt = false,
     int? version,
     JsonMap? metadata,
+    CanvasLayoutState? canvasLayout,
+    bool clearCanvasLayout = false,
+    InkLayerState? inkLayer,
   }) => WorkspacePage(
     id: id,
     workspaceId: workspaceId ?? this.workspaceId,
@@ -57,6 +66,8 @@ class WorkspacePage {
     deletedAt: clearDeletedAt ? null : deletedAt ?? this.deletedAt,
     version: version ?? this.version,
     metadata: metadata ?? this.metadata,
+    canvasLayout: clearCanvasLayout ? null : canvasLayout ?? this.canvasLayout,
+    inkLayer: inkLayer ?? this.inkLayer,
   );
 
   WorkspacePage normalizeOrder() {
@@ -86,6 +97,8 @@ class WorkspacePage {
     'deletedAt': deletedAt?.toUtc().toIso8601String(),
     'version': version,
     'metadata': metadata,
+    if (canvasLayout != null) 'canvasLayout': canvasLayout!.toJson(),
+    if (inkLayer.elements.isNotEmpty) 'inkLayer': inkLayer.toJson(),
   };
 
   factory WorkspacePage.fromJson(Object? value) {
@@ -95,17 +108,22 @@ class WorkspacePage {
     final createdAt =
         DateTime.tryParse(json['createdAt'] as String? ?? '')?.toUtc() ??
         DateTime.fromMillisecondsSinceEpoch(0, isUtc: true);
+    final blocks = json['blocks'] is List
+        ? (json['blocks'] as List).map(BlockCodec.fromJson).toList()
+        : <BaseBlock>[];
+    final layoutType = WorkspaceLayoutType.values.firstWhere(
+      (value) => value.name == json['layoutType'],
+      orElse: () => WorkspaceLayoutType.document,
+    );
+    final storedCanvas = json['canvasLayout'] is Map
+        ? CanvasLayoutState.fromJson(json['canvasLayout'])
+        : null;
     return WorkspacePage(
       id: json['id'] as String? ?? generateUuid(),
       workspaceId: json['workspaceId'] as String? ?? '',
       title: json['title'] as String?,
-      layoutType: WorkspaceLayoutType.values.firstWhere(
-        (value) => value.name == json['layoutType'],
-        orElse: () => WorkspaceLayoutType.document,
-      ),
-      blocks: json['blocks'] is List
-          ? (json['blocks'] as List).map(BlockCodec.fromJson).toList()
-          : const [],
+      layoutType: layoutType,
+      blocks: blocks,
       createdAt: createdAt,
       updatedAt:
           DateTime.tryParse(json['updatedAt'] as String? ?? '')?.toUtc() ??
@@ -115,6 +133,14 @@ class WorkspacePage {
       metadata: json['metadata'] is Map
           ? Map<String, Object?>.from(json['metadata'] as Map)
           : const {},
+      canvasLayout: layoutType == WorkspaceLayoutType.canvas
+          ? (storedCanvas ?? CanvasLayoutState.forBlocks(blocks)).normalizedFor(
+              blocks,
+            )
+          : storedCanvas,
+      inkLayer: InkLayerState.fromJson(
+        json['inkLayer'],
+      ).normalizedForBlockIds(blocks.map((block) => block.id).toSet()),
     );
   }
 }

@@ -8,6 +8,7 @@ import 'package:allministrator/domain/interaction/spatial_geometry.dart';
 import 'package:allministrator/domain/interaction/marquee_selection_session.dart';
 import 'package:allministrator/domain/interaction/selection_group.dart';
 import 'package:allministrator/domain/interaction/transformation_engine.dart';
+import 'package:allministrator/domain/ink/ink_session.dart';
 import 'package:flutter/foundation.dart';
 
 typedef UnhandledInteractionIntent = void Function(InteractionIntent intent);
@@ -27,6 +28,19 @@ class WorkspaceInteractionController extends ChangeNotifier {
   bool _changingFocus = false;
 
   InteractionContext get context => _context;
+
+  void activateTool(WorkspaceTool tool) {
+    if (_context.activeTool == tool) return;
+    _cancel(InteractionCancellationReason.explicit, keepBlockSelected: true);
+    _setContext(
+      _context.copyWith(
+        activeTool: tool,
+        interactionMode: tool == WorkspaceTool.hand
+            ? InteractionMode.panViewport
+            : InteractionMode.idle,
+      ),
+    );
+  }
 
   ValueListenable<int> blockListenable(String blockId) =>
       _blockRevisions.putIfAbsent(blockId, () => ValueNotifier<int>(0));
@@ -57,6 +71,8 @@ class WorkspaceInteractionController extends ChangeNotifier {
         _cancelMarquee();
       case ClearSelectionIntent():
         _cancel(intent.reason, keepBlockSelected: false);
+      case SelectInkElementsIntent():
+        _selectInkElements(intent.elementIds);
       case StartEditingIntent():
         _startEditing(intent);
       case FinishEditingIntent():
@@ -77,6 +93,8 @@ class WorkspaceInteractionController extends ChangeNotifier {
         _updateDrag(intent);
       case CommitDragIntent():
         _commitDrag(intent);
+      case CommitCanvasDragIntent():
+        _commitCanvasDrag();
       case BeginResizeIntent():
         _beginResize(intent);
       case UpdateResizeIntent():
@@ -85,6 +103,14 @@ class WorkspaceInteractionController extends ChangeNotifier {
         _commitResize(intent);
       case CancelResizeIntent():
         _cancelResize();
+      case BeginInkIntent():
+        _beginInk(intent);
+      case UpdateInkIntent():
+        _updateInk(intent);
+      case CommitInkIntent():
+        _commitInk(intent);
+      case CancelInkIntent():
+        _cancelInk();
       case DeleteSelectionIntent() || CopySelectionIntent():
         onUnhandledIntent?.call(intent);
       case AlignSelectionIntent() ||
@@ -292,6 +318,24 @@ class WorkspaceInteractionController extends ChangeNotifier {
     );
   }
 
+  void _commitCanvasDrag() {
+    final session = _context.activeSession;
+    if (session is! DragSession) return;
+    _setContext(
+      _context.copyWith(
+        activeSession: null,
+        interactionMode: InteractionMode.blockSelected,
+        currentSelection: session.blockIds.length > 1
+            ? MultiBlockSelection.fromIds(
+                session.blockIds,
+                primaryBlockId: session.primaryBlockId ?? session.blockId,
+                anchorBlockId: session.primaryBlockId ?? session.blockId,
+              )
+            : BlockSelection(session.blockId!),
+      ),
+    );
+  }
+
   void _beginResize(BeginResizeIntent intent) {
     final pointer = _context.currentPointer;
     if (pointer == null ||
@@ -362,6 +406,91 @@ class WorkspaceInteractionController extends ChangeNotifier {
     );
   }
 
+  void _beginInk(BeginInkIntent intent) {
+    if (_context.activeSession != null ||
+        _context.activeTool != intent.tool ||
+        !intent.tool.startsInkSession) {
+      onUnhandledIntent?.call(intent);
+      return;
+    }
+    _clearFocusWithoutCallback();
+    _setContext(
+      _context.copyWith(
+        selectedBlock: null,
+        focusedBlock: null,
+        editingBlock: null,
+        activeSession: InkSession(
+          id: generateUuid(),
+          startedAt: DateTime.now().toUtc(),
+          correlationId: intent.correlationId,
+          pointerId: intent.pointerId,
+          tool: intent.tool,
+          brush: intent.brush,
+          points: [intent.point],
+          shapeKind: intent.shapeKind,
+          anchor: intent.anchor,
+        ),
+        interactionMode: InteractionMode.drawing,
+        currentSelection: const NoSelection(),
+        overlayState: const InteractionOverlayState(),
+      ),
+    );
+  }
+
+  void _updateInk(UpdateInkIntent intent) {
+    final session = _context.activeSession;
+    if (session is! InkSession || session.points.length >= 20000) return;
+    final previous = session.points.last.workspacePosition;
+    final next = intent.point.workspacePosition;
+    final dx = next.x - previous.x;
+    final dy = next.y - previous.y;
+    final points = dx * dx + dy * dy < .01
+        ? session.points
+        : [...session.points, intent.point];
+    _setContext(
+      _context.copyWith(
+        activeSession: session.copyWith(
+          points: points,
+          affectedElementIds: intent.affectedElementIds,
+        ),
+      ),
+    );
+  }
+
+  void _commitInk(CommitInkIntent intent) {
+    final active = _context.activeSession;
+    if (active is! InkSession || active.id != intent.session.id) return;
+    final selectedIds = intent.session.tool == WorkspaceTool.inkLasso
+        ? intent.session.affectedElementIds
+        : const <String>[];
+    _setContext(
+      _context.copyWith(
+        selectedBlock: null,
+        focusedBlock: null,
+        editingBlock: null,
+        activeSession: null,
+        interactionMode: selectedIds.isEmpty
+            ? InteractionMode.idle
+            : InteractionMode.multiSelection,
+        currentSelection: selectedIds.isEmpty
+            ? const NoSelection()
+            : InkSelection(selectedIds, primaryElementId: selectedIds.last),
+        overlayState: const InteractionOverlayState(),
+      ),
+    );
+  }
+
+  void _cancelInk() {
+    if (_context.activeSession is! InkSession) return;
+    _setContext(
+      _context.copyWith(
+        activeSession: null,
+        interactionMode: InteractionMode.idle,
+        overlayState: const InteractionOverlayState(),
+      ),
+    );
+  }
+
   void _selectBlock(String blockId) {
     _clearFocusWithoutCallback();
     _setContext(
@@ -372,6 +501,26 @@ class WorkspaceInteractionController extends ChangeNotifier {
         activeSession: null,
         interactionMode: InteractionMode.blockSelected,
         currentSelection: BlockSelection(blockId),
+        overlayState: const InteractionOverlayState(),
+      ),
+    );
+  }
+
+  void _selectInkElements(List<String> elementIds) {
+    final ids = elementIds.toSet().toList(growable: false);
+    _clearFocusWithoutCallback();
+    _setContext(
+      _context.copyWith(
+        selectedBlock: null,
+        focusedBlock: null,
+        editingBlock: null,
+        activeSession: null,
+        interactionMode: ids.isEmpty
+            ? InteractionMode.idle
+            : InteractionMode.multiSelection,
+        currentSelection: ids.isEmpty
+            ? const NoSelection()
+            : InkSelection(ids, primaryElementId: ids.last),
         overlayState: const InteractionOverlayState(),
       ),
     );
@@ -439,6 +588,25 @@ class WorkspaceInteractionController extends ChangeNotifier {
     InteractionCancellationReason reason, {
     required bool keepBlockSelected,
   }) {
+    if (_context.activeSession is InkSession) {
+      _cancelInk();
+      return;
+    }
+    if (_context.currentSelection is InkSelection &&
+        _context.activeTool.startsInkSession) {
+      _setContext(
+        _context.copyWith(
+          selectedBlock: null,
+          focusedBlock: null,
+          editingBlock: null,
+          activeSession: null,
+          interactionMode: InteractionMode.idle,
+          currentSelection: const NoSelection(),
+          overlayState: const InteractionOverlayState(),
+        ),
+      );
+      return;
+    }
     _finishEditing(keepBlockSelected: keepBlockSelected);
   }
 

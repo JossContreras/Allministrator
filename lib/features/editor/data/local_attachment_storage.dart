@@ -18,8 +18,12 @@ class StoredImageAttachment {
 }
 
 class LocalAttachmentStorage {
-  LocalAttachmentStorage({this.maxBytes = 50 * 1024 * 1024});
+  LocalAttachmentStorage({
+    this.maxBytes = 50 * 1024 * 1024,
+    this.maxMediaBytes = 250 * 1024 * 1024,
+  });
   final int maxBytes;
+  final int maxMediaBytes;
 
   Future<StoredImageAttachment> copyImage(XFile source) async {
     final input = File(source.path);
@@ -74,17 +78,18 @@ class LocalAttachmentStorage {
     if (!await input.exists()) {
       throw const FileSystemException('El archivo no existe.');
     }
-    final size = await input.length();
-    if (size > maxBytes) {
-      throw FileSystemException(
-        'El archivo supera el límite de ${maxBytes ~/ (1024 * 1024)} MB.',
-      );
-    }
     final originalName = source.name.trim().isEmpty
         ? 'Archivo adjunto'
         : source.name;
     final extension = _extension(originalName);
     final mime = _mimeFor(extension) ?? 'application/octet-stream';
+    final limit = mime.startsWith('video/') ? maxMediaBytes : maxBytes;
+    final size = await input.length();
+    if (size > limit) {
+      throw FileSystemException(
+        'El archivo supera el límite de ${limit ~/ (1024 * 1024)} MB.',
+      );
+    }
     final id = generateUuid();
     final directory = await getApplicationDocumentsDirectory();
     final attachments = Directory(
@@ -115,6 +120,17 @@ class LocalAttachmentStorage {
   String _extension(String name) =>
       name.contains('.') ? name.split('.').last.toLowerCase() : '';
   String? _mimeFor(String extension) => const {
+    'jpg': 'image/jpeg',
+    'jpeg': 'image/jpeg',
+    'png': 'image/png',
+    'webp': 'image/webp',
+    'gif': 'image/gif',
+    'mp4': 'video/mp4',
+    'mov': 'video/quicktime',
+    'm4v': 'video/x-m4v',
+    'webm': 'video/webm',
+    'md': 'text/markdown',
+    'markdown': 'text/markdown',
     'pdf': 'application/pdf',
     'txt': 'text/plain',
     'csv': 'text/csv',

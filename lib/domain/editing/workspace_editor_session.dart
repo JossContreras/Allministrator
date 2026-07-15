@@ -4,7 +4,9 @@ import 'package:allministrator/core/shared/identifiers.dart';
 import 'package:allministrator/core/utils/uuid_generator.dart';
 import 'package:allministrator/domain/blocks/blocks.dart';
 import 'package:allministrator/domain/entities/workspace.dart';
+import 'package:allministrator/domain/entities/canvas_layout.dart';
 import 'package:allministrator/domain/entities/workspace_page.dart';
+import 'package:allministrator/domain/ink/ink_models.dart';
 import 'package:allministrator/domain/interaction/spatial_geometry.dart';
 import 'package:allministrator/domain/interaction/transformation_engine.dart';
 import 'package:allministrator/domain/value_objects/structured_document.dart';
@@ -70,6 +72,7 @@ class WorkspaceEditorSession extends ChangeNotifier {
     BaseBlock block, {
     Uuid? activeBlockId,
     BlockTextSelection? textSelection,
+    SpatialPoint? canvasPosition,
   }) {
     final ordered = blocks;
     final selectedIndex = ordered.indexWhere(
@@ -78,6 +81,40 @@ class WorkspaceEditorSession extends ChangeNotifier {
     final selected = selectedIndex < 0 ? null : ordered[selectedIndex];
     final now = DateTime.now().toUtc();
     late List<BaseBlock> next;
+
+    if (page.layoutType == WorkspaceLayoutType.canvas) {
+      next = [...ordered, block];
+      final layout = (page.canvasLayout ?? CanvasLayoutState.forBlocks(ordered))
+          .normalizedFor(ordered);
+      final position = canvasPosition ?? const SpatialPoint(480, 320);
+      final placement = CanvasPlacement(
+        blockId: block.id,
+        x: position.x,
+        y: position.y,
+        width: block.geometry.width ?? 360,
+        height: block.geometry.height,
+        zIndex: layout.topZIndex + 1,
+        locked: block.isLocked,
+      );
+      final normalized = _normalizeOrder(next, now);
+      _commit(
+        _replacePage(
+          page.copyWith(
+            blocks: normalized,
+            canvasLayout: layout.copyWith(
+              placements: [...layout.placements, placement],
+            ),
+            updatedAt: now,
+            version: page.version + 1,
+          ),
+          now: now,
+        ),
+        kind: 'insertCanvasBlock',
+        blockId: block.id,
+        refreshPresentation: true,
+      );
+      return;
+    }
 
     if (selected is TextBlock) {
       final fallback =
@@ -141,7 +178,7 @@ class WorkspaceEditorSession extends ChangeNotifier {
         first.copyWith(paragraphs: [...first.paragraphs, ...second.paragraphs]),
       ]);
     }
-    if (next.isEmpty) {
+    if (next.isEmpty && page.layoutType != WorkspaceLayoutType.canvas) {
       next.add(_emptyTextBlock(orderKey: 0, now: now));
     }
     final normalized = _normalizeOrder(next, now);
@@ -164,8 +201,31 @@ class WorkspaceEditorSession extends ChangeNotifier {
     final now = DateTime.now().toUtc();
     final next = [...ordered]..insert(index + 1, clone);
     final normalized = _normalizeOrder(next, now);
+    var nextWorkspace = _replaceBlocks(normalized, now: now);
+    if (page.layoutType == WorkspaceLayoutType.canvas) {
+      final currentLayout = page.canvasLayout!.normalizedFor(ordered);
+      final sourcePlacement = currentLayout.placementFor(blockId)!;
+      final nextPage = nextWorkspace.primaryPage.copyWith(
+        canvasLayout: currentLayout.copyWith(
+          placements: [
+            ...currentLayout.placements,
+            CanvasPlacement(
+              blockId: clone.id,
+              x: sourcePlacement.x + 32,
+              y: sourcePlacement.y + 32,
+              width: sourcePlacement.width,
+              height: sourcePlacement.height,
+              zIndex: currentLayout.topZIndex + 1,
+              containerId: sourcePlacement.containerId,
+              locked: false,
+            ),
+          ],
+        ),
+      );
+      nextWorkspace = _replacePage(nextPage, now: now);
+    }
     _commit(
-      _replaceBlocks(normalized, now: now),
+      nextWorkspace,
       kind: 'duplicateBlock',
       blockId: clone.id,
       refreshPresentation: true,
@@ -279,7 +339,9 @@ class WorkspaceEditorSession extends ChangeNotifier {
     }
     final now = DateTime.now().toUtc();
     final next = blocks.where((block) => !ids.contains(block.id)).toList();
-    if (next.isEmpty) next.add(_emptyTextBlock(orderKey: 0, now: now));
+    if (next.isEmpty && page.layoutType != WorkspaceLayoutType.canvas) {
+      next.add(_emptyTextBlock(orderKey: 0, now: now));
+    }
     _commit(
       _replaceBlocks(_normalizeOrder(next, now), now: now),
       kind: 'deleteMultipleBlocks',
@@ -293,6 +355,39 @@ class WorkspaceEditorSession extends ChangeNotifier {
     if (block == null ||
         block.isLocked ||
         !block.supports(BlockCapability.resizable)) {
+      return;
+    }
+    if (page.layoutType == WorkspaceLayoutType.canvas) {
+      final layout = page.canvasLayout?.normalizedFor(blocks);
+      final placement = layout?.placementFor(blockId);
+      if (layout == null || placement == null) return;
+      final now = DateTime.now().toUtc();
+      _commit(
+        _replacePage(
+          page.copyWith(
+            canvasLayout: layout.copyWith(
+              placements: [
+                for (final item in layout.placements)
+                  if (item.blockId == blockId)
+                    item.copyWith(
+                      x: workspaceBounds.left,
+                      y: workspaceBounds.top,
+                      width: workspaceBounds.width,
+                      height: workspaceBounds.height,
+                    )
+                  else
+                    item,
+              ],
+            ),
+            updatedAt: now,
+            version: page.version + 1,
+          ),
+          now: now,
+        ),
+        kind: 'resizeCanvasBlock',
+        blockId: blockId,
+        refreshPresentation: true,
+      );
       return;
     }
     final nextGeometry = block.geometry.copyWith(
@@ -351,6 +446,449 @@ class WorkspaceEditorSession extends ChangeNotifier {
     _transformBlocks(selected, deltas, kind: 'distributeBlocks');
   }
 
+  void distributeBlocksHorizontally(
+    Iterable<String> blockIds,
+    Map<String, SpatialRect> workspaceBounds,
+  ) {
+    final ids = blockIds.toSet();
+    final selected = blocks.where((block) => ids.contains(block.id)).toList();
+    if (selected.length < 3 ||
+        selected.any((block) => !workspaceBounds.containsKey(block.id)) ||
+        selected.any(
+          (block) => block.isLocked || !block.supports(BlockCapability.movable),
+        )) {
+      return;
+    }
+    final deltas = const TransformationEngine().distributeHorizontally(
+      selected.map((block) => block.id).toList(),
+      {for (final block in selected) block.id: workspaceBounds[block.id]!},
+    );
+    _transformBlocks(selected, deltas, kind: 'distributeBlocksHorizontally');
+  }
+
+  void convertLayout(WorkspaceLayoutType target) {
+    if (target == page.layoutType ||
+        (target != WorkspaceLayoutType.document &&
+            target != WorkspaceLayoutType.canvas)) {
+      return;
+    }
+    final now = DateTime.now().toUtc();
+    if (target == WorkspaceLayoutType.canvas) {
+      final layout = (page.canvasLayout ?? CanvasLayoutState.forBlocks(blocks))
+          .normalizedFor(blocks);
+      _commit(
+        _replacePage(
+          page.copyWith(
+            layoutType: target,
+            canvasLayout: layout,
+            updatedAt: now,
+            version: page.version + 1,
+          ),
+          now: now,
+        ),
+        kind: 'convertToCanvas',
+        blockId: page.id,
+        refreshPresentation: true,
+      );
+      return;
+    }
+    final layout = page.canvasLayout?.normalizedFor(blocks);
+    final ordered = [...blocks]
+      ..sort((first, second) {
+        final a = layout?.placementFor(first.id);
+        final b = layout?.placementFor(second.id);
+        if (a == null || b == null) {
+          return first.orderKey.compareTo(second.orderKey);
+        }
+        const rowHeight = 48.0;
+        final rowA = (a.y / rowHeight).round();
+        final rowB = (b.y / rowHeight).round();
+        return rowA == rowB ? a.x.compareTo(b.x) : rowA.compareTo(rowB);
+      });
+    final documentBlocks = _normalizeOrder(ordered, now)
+        .map(
+          (block) => block.copyWithCommon(
+            geometry: block.geometry.copyWith(x: 0, y: 0),
+          ),
+        )
+        .toList();
+    _commit(
+      _replacePage(
+        page.copyWith(
+          layoutType: target,
+          blocks: documentBlocks,
+          updatedAt: now,
+          version: page.version + 1,
+        ),
+        now: now,
+      ),
+      kind: 'convertToDocument',
+      blockId: page.id,
+      refreshPresentation: true,
+    );
+  }
+
+  void moveCanvasBlocks(Iterable<String> blockIds, SpatialPoint delta) {
+    if (page.layoutType != WorkspaceLayoutType.canvas ||
+        (!delta.x.isFinite || !delta.y.isFinite)) {
+      return;
+    }
+    final ids = blockIds.toSet();
+    final layout = page.canvasLayout?.normalizedFor(blocks);
+    if (layout == null || ids.isEmpty) return;
+    final selected = blocks.where((block) => ids.contains(block.id)).toList();
+    if (selected.length != ids.length ||
+        selected.any(
+          (block) => block.isLocked || !block.supports(BlockCapability.movable),
+        )) {
+      return;
+    }
+    double snap(double value) => layout.snapToGrid
+        ? (value / layout.gridSize).round() * layout.gridSize
+        : value;
+    final now = DateTime.now().toUtc();
+    final placements = [
+      for (final placement in layout.placements)
+        if (ids.contains(placement.blockId) && !placement.locked)
+          placement.copyWith(
+            x: snap(placement.x + delta.x),
+            y: snap(placement.y + delta.y),
+          )
+        else
+          placement,
+    ];
+    _commit(
+      _replacePage(
+        page.copyWith(
+          canvasLayout: layout.copyWith(placements: placements),
+          updatedAt: now,
+          version: page.version + 1,
+        ),
+        now: now,
+      ),
+      kind: 'moveCanvasBlocks',
+      blockId: selected.first.id,
+      refreshPresentation: true,
+    );
+  }
+
+  void changeCanvasZOrder(String blockId, int delta, {bool absolute = false}) {
+    if (page.layoutType != WorkspaceLayoutType.canvas) return;
+    final layout = page.canvasLayout?.normalizedFor(blocks);
+    final current = layout?.placementFor(blockId);
+    if (layout == null || current == null || current.locked) return;
+    final ordered = [...layout.placements]
+      ..sort((a, b) => a.zIndex.compareTo(b.zIndex));
+    final currentIndex = ordered.indexWhere((item) => item.blockId == blockId);
+    final targetIndex = absolute
+        ? (delta > 0 ? ordered.length - 1 : 0)
+        : (currentIndex + delta).clamp(0, ordered.length - 1);
+    if (targetIndex == currentIndex) return;
+    final moved = ordered.removeAt(currentIndex);
+    ordered.insert(targetIndex, moved);
+    final now = DateTime.now().toUtc();
+    _commit(
+      _replacePage(
+        page.copyWith(
+          canvasLayout: layout.copyWith(
+            placements: [
+              for (var index = 0; index < ordered.length; index++)
+                ordered[index].copyWith(zIndex: index),
+            ],
+          ),
+          updatedAt: now,
+          version: page.version + 1,
+        ),
+        now: now,
+      ),
+      kind: 'changeCanvasZOrder',
+      blockId: blockId,
+      refreshPresentation: true,
+    );
+  }
+
+  String? connectCanvasBlocks(String sourceBlockId, String targetBlockId) {
+    if (page.layoutType != WorkspaceLayoutType.canvas ||
+        sourceBlockId == targetBlockId) {
+      return null;
+    }
+    final layout = page.canvasLayout?.normalizedFor(blocks);
+    if (layout == null ||
+        layout.placementFor(sourceBlockId) == null ||
+        layout.placementFor(targetBlockId) == null) {
+      return null;
+    }
+    final connector = CanvasConnector(
+      id: generateUuid(),
+      sourceBlockId: sourceBlockId,
+      targetBlockId: targetBlockId,
+    );
+    final now = DateTime.now().toUtc();
+    _commit(
+      _replacePage(
+        page.copyWith(
+          canvasLayout: layout.copyWith(
+            connectors: [...layout.connectors, connector],
+          ),
+          updatedAt: now,
+          version: page.version + 1,
+        ),
+        now: now,
+      ),
+      kind: 'connectCanvasBlocks',
+      blockId: sourceBlockId,
+      refreshPresentation: true,
+    );
+    return connector.id;
+  }
+
+  void deleteCanvasConnectorsFor(Iterable<String> blockIds) {
+    final ids = blockIds.toSet();
+    final layout = page.canvasLayout;
+    if (layout == null || ids.isEmpty) return;
+    final remaining = layout.connectors
+        .where(
+          (item) =>
+              !ids.contains(item.sourceBlockId) &&
+              !ids.contains(item.targetBlockId),
+        )
+        .toList();
+    if (remaining.length == layout.connectors.length) return;
+    final now = DateTime.now().toUtc();
+    _commit(
+      _replacePage(
+        page.copyWith(
+          canvasLayout: layout.copyWith(connectors: remaining),
+          updatedAt: now,
+          version: page.version + 1,
+        ),
+        now: now,
+      ),
+      kind: 'deleteCanvasConnectors',
+      blockId: ids.first,
+      refreshPresentation: true,
+    );
+  }
+
+  void updateCanvasSettings({bool? showGrid, bool? snapToGrid}) {
+    final layout = page.canvasLayout;
+    if (page.layoutType != WorkspaceLayoutType.canvas || layout == null) return;
+    final next = layout.copyWith(showGrid: showGrid, snapToGrid: snapToGrid);
+    if (next.showGrid == layout.showGrid &&
+        next.snapToGrid == layout.snapToGrid) {
+      return;
+    }
+    final now = DateTime.now().toUtc();
+    _commit(
+      _replacePage(
+        page.copyWith(
+          canvasLayout: next,
+          updatedAt: now,
+          version: page.version + 1,
+        ),
+        now: now,
+      ),
+      kind: 'updateCanvasSettings',
+      blockId: page.id,
+      refreshPresentation: true,
+    );
+  }
+
+  void addInkElement(InkElement element) {
+    final layer = page.inkLayer;
+    if (layer.elementById(element.id) != null ||
+        element is InkStroke && !element.isValid ||
+        element is InkShape && !element.isValid) {
+      return;
+    }
+    final now = DateTime.now().toUtc();
+    _commit(
+      _replacePage(
+        page.copyWith(
+          inkLayer: layer.copyWith(elements: [...layer.elements, element]),
+          updatedAt: now,
+          version: page.version + 1,
+        ),
+        now: now,
+      ),
+      kind: element is InkShape ? 'addInkShape' : 'addInkStroke',
+      blockId: element.id,
+      refreshPresentation: true,
+    );
+  }
+
+  void deleteInkElements(Iterable<String> elementIds) {
+    final ids = elementIds.toSet();
+    if (ids.isEmpty) return;
+    final layer = page.inkLayer;
+    final remaining = layer.elements
+        .where((element) => !ids.contains(element.id) || element.isLocked)
+        .toList(growable: false);
+    if (remaining.length == layer.elements.length) return;
+    _commitInkLayer(
+      layer.copyWith(elements: remaining),
+      kind: 'deleteInkElements',
+      elementId: ids.first,
+    );
+  }
+
+  List<String> duplicateInkElements(Iterable<String> elementIds) {
+    final ids = elementIds.toSet();
+    if (ids.isEmpty) return const [];
+    final clones = page.inkLayer.elements
+        .where((element) => ids.contains(element.id) && !element.isLocked)
+        .map(
+          (element) => element.duplicate(
+            id: generateUuid(),
+            delta: const SpatialPoint(24, 24),
+          ),
+        )
+        .toList(growable: false);
+    if (clones.isEmpty) return const [];
+    _commitInkLayer(
+      page.inkLayer.copyWith(elements: [...page.inkLayer.elements, ...clones]),
+      kind: 'duplicateInkElements',
+      elementId: clones.first.id,
+    );
+    return clones.map((element) => element.id).toList(growable: false);
+  }
+
+  void translateInkElements(Iterable<String> elementIds, SpatialPoint delta) {
+    final ids = elementIds.toSet();
+    if (ids.isEmpty ||
+        !delta.x.isFinite ||
+        !delta.y.isFinite ||
+        delta == const SpatialPoint(0, 0)) {
+      return;
+    }
+    final now = DateTime.now().toUtc();
+    var changed = false;
+    final elements = [
+      for (final element in page.inkLayer.elements)
+        if (ids.contains(element.id) && !element.isLocked)
+          (() {
+            changed = true;
+            return element.translated(delta, updatedAt: now);
+          })()
+        else
+          element,
+    ];
+    if (!changed) return;
+    _commitInkLayer(
+      page.inkLayer.copyWith(elements: elements),
+      kind: 'transformInkSelection',
+      elementId: ids.first,
+    );
+  }
+
+  void updateInkStyle(Iterable<String> elementIds, InkBrushStyle style) {
+    final ids = elementIds.toSet();
+    if (ids.isEmpty) return;
+    final now = DateTime.now().toUtc();
+    var changed = false;
+    final elements = [
+      for (final element in page.inkLayer.elements)
+        if (ids.contains(element.id) && !element.isLocked)
+          (() {
+            changed = true;
+            return element.withBrush(
+              element.brush.copyWith(
+                color: style.color,
+                baseWidth: style.baseWidth,
+                opacity: style.opacity,
+              ),
+              updatedAt: now,
+            );
+          })()
+        else
+          element,
+    ];
+    if (!changed) return;
+    _commitInkLayer(
+      page.inkLayer.copyWith(elements: elements),
+      kind: 'updateInkStyle',
+      elementId: ids.first,
+    );
+  }
+
+  void _commitInkLayer(
+    InkLayerState layer, {
+    required String kind,
+    required String elementId,
+  }) {
+    final now = DateTime.now().toUtc();
+    _commit(
+      _replacePage(
+        page.copyWith(
+          inkLayer: layer,
+          updatedAt: now,
+          version: page.version + 1,
+        ),
+        now: now,
+      ),
+      kind: kind,
+      blockId: elementId,
+      refreshPresentation: true,
+    );
+  }
+
+  String? createCanvasFrame(
+    Iterable<String> blockIds,
+    Map<String, SpatialRect> workspaceBounds,
+  ) {
+    final ids = blockIds.toSet();
+    final layout = page.canvasLayout?.normalizedFor(blocks);
+    if (page.layoutType != WorkspaceLayoutType.canvas ||
+        layout == null ||
+        ids.isEmpty ||
+        ids.any((id) => !workspaceBounds.containsKey(id))) {
+      return null;
+    }
+    final bounds = ids.map((id) => workspaceBounds[id]!).toList();
+    var left = bounds.first.left;
+    var top = bounds.first.top;
+    var right = bounds.first.right;
+    var bottom = bounds.first.bottom;
+    for (final rect in bounds.skip(1)) {
+      left = math.min(left, rect.left);
+      top = math.min(top, rect.top);
+      right = math.max(right, rect.right);
+      bottom = math.max(bottom, rect.bottom);
+    }
+    final frame = CanvasFrame(
+      id: generateUuid(),
+      title: 'Marco',
+      x: left - 36,
+      y: top - 56,
+      width: right - left + 72,
+      height: bottom - top + 92,
+      zIndex: -layout.frames.length - 1,
+    );
+    final now = DateTime.now().toUtc();
+    _commit(
+      _replacePage(
+        page.copyWith(
+          canvasLayout: layout.copyWith(
+            frames: [...layout.frames, frame],
+            placements: [
+              for (final placement in layout.placements)
+                ids.contains(placement.blockId)
+                    ? placement.copyWith(containerId: frame.id)
+                    : placement,
+            ],
+          ),
+          updatedAt: now,
+          version: page.version + 1,
+        ),
+        now: now,
+      ),
+      kind: 'createCanvasFrame',
+      blockId: ids.first,
+      refreshPresentation: true,
+    );
+    return frame.id;
+  }
+
   void _transformBlocks(
     List<BaseBlock> selected,
     Map<String, SpatialPoint> deltas, {
@@ -358,6 +896,36 @@ class WorkspaceEditorSession extends ChangeNotifier {
     BlockAlignmentAxis? alignment,
   }) {
     if (deltas.isEmpty) return;
+    if (page.layoutType == WorkspaceLayoutType.canvas) {
+      final layout = page.canvasLayout?.normalizedFor(blocks);
+      if (layout == null) return;
+      final now = DateTime.now().toUtc();
+      _commit(
+        _replacePage(
+          page.copyWith(
+            canvasLayout: layout.copyWith(
+              placements: [
+                for (final placement in layout.placements)
+                  if (deltas[placement.blockId] case final delta?)
+                    placement.copyWith(
+                      x: placement.x + delta.x,
+                      y: placement.y + delta.y,
+                    )
+                  else
+                    placement,
+              ],
+            ),
+            updatedAt: now,
+            version: page.version + 1,
+          ),
+          now: now,
+        ),
+        kind: kind,
+        blockId: selected.first.id,
+        refreshPresentation: true,
+      );
+      return;
+    }
     final selectedIds = selected.map((block) => block.id).toSet();
     final now = DateTime.now().toUtc();
     var changed = false;
@@ -591,9 +1159,18 @@ class WorkspaceEditorSession extends ChangeNotifier {
     final currentPage = page;
     final nextPage = currentPage.copyWith(
       blocks: blocks,
+      canvasLayout: currentPage.canvasLayout?.normalizedFor(blocks),
+      inkLayer: currentPage.inkLayer.normalizedForBlockIds(
+        blocks.map((block) => block.id).toSet(),
+      ),
       updatedAt: now,
       version: currentPage.version + 1,
     );
+    return _replacePage(nextPage, now: now);
+  }
+
+  Workspace _replacePage(WorkspacePage nextPage, {required DateTime now}) {
+    final currentPage = page;
     final pages = [..._workspace.pages];
     final index = pages.indexWhere((page) => page.id == currentPage.id);
     if (index < 0) {

@@ -33,8 +33,8 @@ class _NotesAppState extends State<NotesApp> {
   @override
   Widget build(BuildContext context) => MaterialApp.router(
     title: AppConstants.applicationName,
-    theme: AppTheme.light,
-    darkTheme: AppTheme.dark,
+    theme: AppTheme.lightFor(_themeController.visualStyle),
+    darkTheme: AppTheme.darkFor(_themeController.visualStyle),
     themeMode: _themeController.themeMode,
     themeAnimationDuration: AppMotion.normal,
     themeAnimationCurve: AppMotion.state,

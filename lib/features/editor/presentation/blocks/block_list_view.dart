@@ -48,8 +48,6 @@ class BlockListView extends StatelessWidget {
               _dispatchEscape(),
           const SingleActivator(LogicalKeyboardKey.delete): () =>
               _dispatchSelectionDelete('Delete'),
-          const SingleActivator(LogicalKeyboardKey.backspace): () =>
-              _dispatchSelectionDelete('Backspace'),
         },
         child: ListView.builder(
           controller: controller,

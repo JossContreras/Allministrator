@@ -1,9 +1,17 @@
-import 'package:allministrator/features/shared/presentation/placeholder_section_screen.dart';
+import 'package:allministrator/features/documents/domain/repositories/document_repository.dart';
+import 'package:allministrator/features/documents/presentation/documents_screen.dart';
 import 'package:flutter/widgets.dart';
 
 class RecentScreen extends StatelessWidget {
-  const RecentScreen({super.key});
+  const RecentScreen({required this.repository, super.key});
+
+  final DocumentRepository repository;
+
   @override
-  Widget build(BuildContext context) =>
-      const PlaceholderSectionScreen(title: 'Recientes', path: '/recent');
+  Widget build(BuildContext context) => DocumentsBrowserScreen(
+    repository: repository,
+    title: 'Recientes',
+    selectedPath: '/recent',
+    filter: DocumentsBrowserFilter.recent,
+  );
 }

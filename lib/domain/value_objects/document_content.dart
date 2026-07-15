@@ -15,7 +15,7 @@ class DocumentContent {
     this.migrationError,
   });
 
-  static const currentSchemaVersion = 3;
+  static const currentSchemaVersion = 5;
 
   final int schemaVersion;
   final Map<String, Object?> data;
@@ -75,13 +75,14 @@ class DocumentContent {
 
   factory DocumentContent.fromJson(Map<String, Object?> json) {
     final version = (json['schemaVersion'] as num?)?.toInt() ?? 1;
-    if (version >= currentSchemaVersion && json['workspace'] is Map) {
+    if (json['workspace'] is Map) {
       return DocumentContent(
-        schemaVersion: version,
+        schemaVersion: currentSchemaVersion,
         data: {
           'workspace': Map<String, Object?>.from(json['workspace'] as Map),
           if (json['migration'] != null) 'migration': json['migration'],
         },
+        wasMigrated: version < currentSchemaVersion,
       );
     }
     final raw =

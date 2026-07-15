@@ -10,7 +10,7 @@ void main() {
         'text': 'uno\ndos',
       });
 
-      expect(content.schemaVersion, 3);
+      expect(content.schemaVersion, DocumentContent.currentSchemaVersion);
       expect(content.wasMigrated, isTrue);
       final block = content.workspace.primaryPage.blocks.single as TextBlock;
       expect(block.plainText, 'uno\ndos');
